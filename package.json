@@ -1,9 +1,9 @@
 {
-  "name": "personaut-extension",
+  "name": "personaut",
   "publisher": "personaut",
   "displayName": "Personaut",
   "description": "Personaut AI Coding Assistant",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "license": "Apache-2.0",
   "icon": "media/assets/personaut-logo.png",
   "repository": {
@@ -129,11 +129,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable Cross-Region Inference for Bedrock"
-        },
-        "personaut.mcpServers": {
-          "type": "object",
-          "default": {},
-          "description": "Configuration for MCP Servers. Format: { \"serverName\": { \"command\": \"executable\", \"args\": [\"arg1\"] } }"
         },
         "personaut.theme": {
           "type": "string",

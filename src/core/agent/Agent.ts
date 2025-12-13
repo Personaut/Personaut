@@ -7,8 +7,6 @@ import { ITool, ToolCall } from '../tools/ITool';
 import { ReadFileTool, WriteFileTool, ListFilesTool } from '../tools/FileTools';
 import { ExecuteCommandTool } from '../tools/TerminalTool';
 import { BrowserTool } from '../tools/BrowserTool';
-import { MCPManager } from '../integrations/MCPManager';
-import { MCPToolAdapter } from '../tools/MCPToolAdapter';
 import { TerminalManager } from '../integrations/TerminalManager';
 import { getAgentSystemPrompt } from '../prompts/SystemPrompts';
 import { AgentMode, ContextFile, AgentSettings, AgentConfig } from './AgentTypes';
@@ -24,7 +22,6 @@ export class Agent {
   private abortController: AbortController | null = null;
   private messageHistory: Message[] = [];
   private tools: ITool[] = [];
-  private mcpManager: MCPManager;
   public readonly conversationId: string;
   private readonly onDidUpdateMessages: (messages: Message[]) => void;
   private customSystemPrompt: string = '';
@@ -41,14 +38,13 @@ export class Agent {
     this.conversationId = config.conversationId;
     this.onDidUpdateMessages = config.onDidUpdateMessages;
     this.mode = config.mode || 'chat';
-    this.mcpManager = new MCPManager();
     this.initializeTools();
   }
 
   /**
-   * Initialize core tools and load MCP tools
+   * Initialize core tools
    */
-  private async initializeTools() {
+  private initializeTools() {
     // Core Tools
     this.tools = [
       new ReadFileTool(),
@@ -61,29 +57,6 @@ export class Agent {
       '[Personaut] Core tools initialized:',
       this.tools.map((t) => t.name)
     );
-
-    // Load MCP Tools
-    try {
-      const config = vscode.workspace.getConfiguration('personaut');
-      const mcpServers = config.get<any>('mcpServers') || {};
-
-      for (const [name, settings] of Object.entries(mcpServers)) {
-        if ((settings as any).command) {
-          await this.mcpManager.connectToServer(
-            name,
-            (settings as any).command,
-            (settings as any).args || []
-          );
-        }
-      }
-
-      const mcpTools = await this.mcpManager.getAllTools();
-      for (const tool of mcpTools) {
-        this.tools.push(new MCPToolAdapter(tool, tool.client));
-      }
-    } catch (e) {
-      console.error('Failed to initialize MCP tools:', e);
-    }
   }
 
   /**
@@ -239,7 +212,6 @@ export class Agent {
    * Clean up resources
    */
   public dispose() {
-    this.mcpManager.dispose();
     TerminalManager.getInstance().dispose();
   }
 
@@ -354,7 +326,7 @@ export class Agent {
    * Check if tool execution is allowed based on settings
    */
   private checkToolPermission(toolName: string, settings: AgentSettings): boolean {
-    // Auto-allow certain tools
+    // Auto-allow certain tools based on settings
     if (toolName === 'read_file' && settings.autoRead) {
       return true;
     }
@@ -368,15 +340,6 @@ export class Agent {
       return true;
     }
     if (toolName === 'browser_action') {
-      return true;
-    }
-
-    // Auto-allow MCP tools for now
-    if (
-      !['read_file', 'write_file', 'execute_command', 'list_files', 'browser_action'].includes(
-        toolName
-      )
-    ) {
       return true;
     }
 
@@ -446,48 +409,6 @@ export class Agent {
       return { tool: 'browser_action', args: args };
     }
 
-    // Generic Tool Matcher for MCP tools
-    for (const tool of this.tools) {
-      if (
-        ['read_file', 'write_file', 'execute_command', 'list_files', 'browser_action'].includes(
-          tool.name
-        )
-      ) {
-        continue;
-      }
-
-      const toolRegex = new RegExp(`<${tool.name}>([\\s\\S]*?)<\\/${tool.name}>`);
-      const match = text.match(toolRegex);
-      if (match) {
-        let args = {};
-        let content = match[1].trim();
-        try {
-          if (content) {
-            args = JSON.parse(content);
-            content = '';
-          }
-        } catch (_e) {
-          // If not valid JSON, treat it as plain content
-        }
-        return { tool: tool.name, args: args, content: content };
-      }
-
-      // Check for self-closing tags
-      const selfClosingToolRegex = new RegExp(`<${tool.name}\\s+([\\s\\S]*?)\\s*\\/>`);
-      const selfClosingMatch = text.match(selfClosingToolRegex);
-      if (selfClosingMatch) {
-        let args = {};
-        const attributesString = selfClosingMatch[1];
-        try {
-          if (attributesString.startsWith('{') && attributesString.endsWith('}')) {
-            args = JSON.parse(attributesString);
-          }
-        } catch (_e) {
-          // Not JSON, treat as empty args
-        }
-        return { tool: tool.name, args: args };
-      }
-    }
 
     return null;
   }

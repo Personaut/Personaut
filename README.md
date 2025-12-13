@@ -1,6 +1,10 @@
-# Personaut Extension - Refactored Codebase
+# Personaut Extension
 
-This directory contains the refactored Personaut extension with a feature-based architecture and centralized agent management.
+> **🚀 Public Preview** | **v0.1.0**
+>
+> Personaut is now in **Public Preview**! We're excited to have you try out our empathetic development assistant. Please note that features and APIs may change as we continue to improve the extension based on your feedback.
+
+This directory contains the Personaut extension with a feature-based architecture and centralized agent management.
 
 ## 🎯 Quick Start
 

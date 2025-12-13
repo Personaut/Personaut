@@ -1,6 +1,8 @@
 # Personaut Documentation
 
-Welcome to the Personaut documentation.
+> **🚀 Public Preview** | **v0.1.0**
+
+Welcome to the Personaut documentation. Personaut is currently in **Public Preview** — we appreciate your feedback as we continue to improve the extension!
 
 ## 🚀 Getting Started
 - [Setup & Installation](getting-started/setup.mdx)
