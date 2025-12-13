@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Toast notification when settings are saved successfully (auto-dismisses after 2.5 seconds)
 - Visual confirmation for data reset operations
 
-## [0.0.1] - 2024-12-07
+## [0.0.1] - 2025-12-07
 
 ### Added
 - AI-powered coding assistant with multiple provider support (Gemini, Bedrock, OpenAI, Native IDE)
