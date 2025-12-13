@@ -151,6 +151,13 @@ export class BuildModeHandler implements IFeatureHandler {
         case 'regenerate-single-persona':
           await this.handleRegenerateSinglePersona(message, webview);
           break;
+        // User story generation handlers (Task 23)
+        case 'generate-user-stories':
+          await this.handleGenerateUserStories(message, webview);
+          break;
+        case 'regenerate-single-story':
+          await this.handleRegenerateSingleStory(message, webview);
+          break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
       }
@@ -1037,10 +1044,250 @@ export class BuildModeHandler implements IFeatureHandler {
     }
   }
 
+  // ==================== User Story Generation Handlers (Task 23) ====================
+
+  /**
+   * System prompt for user story generation.
+   */
+  private readonly USER_STORY_PROMPT = `You are a UX expert generating user stories. 
+For each feature, create a comprehensive user story in the format:
+"As a [persona], I want [feature], so that [benefit]"
+
+Each story should include:
+- A clear, descriptive title
+- The user story description in the standard format
+- 3-5 acceptance criteria (testable conditions)
+- 2-3 clarifying questions to refine requirements
+
+Output as JSON array with structure:
+[{
+  "id": "story-1",
+  "title": "Story Title",
+  "description": "As a user, I want to...",
+  "acceptanceCriteria": ["Given..., When..., Then..."],
+  "clarifyingQuestions": ["What happens if...?"],
+  "featureId": "feature-id",
+  "personaId": "persona-id"
+}]`;
+
+  /**
+   * Handle generate user stories request.
+   * Validates: Requirements 13.1, 13.2, 13.3
+   */
+  private async handleGenerateUserStories(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!message.projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(message.projectName);
+
+    const features = message.features || [];
+    const personas = message.personas || [];
+
+    console.log('[BuildModeHandler] Generating user stories:', {
+      projectName: message.projectName,
+      featureCount: features.length,
+      personaCount: personas.length,
+    });
+
+    // Notify start
+    webview.postMessage({
+      type: 'user-stories-generation-started',
+      projectName: message.projectName,
+    });
+
+    try {
+      // Build the prompt with feature and persona context
+      const featureList = features
+        .map((f: any) => `- ${f.name}: ${f.description || 'No description'}`)
+        .join('\n');
+      const personaList = personas
+        .map((p: any) => `- ${p.name}: ${p.backstory || 'No backstory'}`)
+        .join('\n');
+
+      const prompt = `Generate user stories for the following features and personas:
+
+FEATURES:
+${featureList || 'No features provided'}
+
+PERSONAS:
+${personaList || 'No personas provided'}
+
+Generate one user story per feature, considering the perspectives of all personas.`;
+
+      // Use BuildModeService to generate content
+      const generatedContent = await this.buildModeService.generateStageContent(
+        message.projectName,
+        'stories',
+        `${this.USER_STORY_PROMPT}\n\n${prompt}`
+      );
+
+      // Parse the generated stories
+      let stories: any[] = [];
+      try {
+        // Try to extract JSON from the response
+        const jsonMatch = generatedContent.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          stories = JSON.parse(jsonMatch[0]);
+        } else {
+          // Try parsing directly
+          stories = JSON.parse(generatedContent);
+        }
+      } catch {
+        // If parsing fails, create a simple story from the text
+        stories = [{
+          id: `story-${Date.now()}`,
+          title: 'Generated Story',
+          description: generatedContent,
+          acceptanceCriteria: [],
+          clarifyingQuestions: [],
+        }];
+      }
+
+      // Ensure each story has required fields
+      stories = stories.map((story: any, index: number) => ({
+        id: story.id || `story-${index + 1}-${Date.now()}`,
+        title: story.title || `User Story ${index + 1}`,
+        description: story.description || '',
+        acceptanceCriteria: Array.isArray(story.acceptanceCriteria)
+          ? story.acceptanceCriteria
+          : [],
+        clarifyingQuestions: Array.isArray(story.clarifyingQuestions)
+          ? story.clarifyingQuestions
+          : [],
+        featureId: story.featureId || null,
+        personaId: story.personaId || null,
+        answers: {},
+      }));
+
+      // Save to stage file
+      await this.buildModeService.saveStage(
+        message.projectName,
+        'stories',
+        { stories },
+        false
+      );
+
+      // Send success response
+      webview.postMessage({
+        type: 'user-stories-generated',
+        projectName: message.projectName,
+        stories,
+      });
+
+      console.log('[BuildModeHandler] User stories generated:', {
+        projectName: message.projectName,
+        storyCount: stories.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to generate user stories:', error);
+
+      webview.postMessage({
+        type: 'user-stories-generation-error',
+        projectName: message.projectName,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle regenerate single story request.
+   * Validates: Requirements 13.5
+   */
+  private async handleRegenerateSingleStory(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!message.projectName || !message.storyId) {
+      throw new Error('Project name and story ID are required');
+    }
+
+    this.validateProjectName(message.projectName);
+
+    console.log('[BuildModeHandler] Regenerating story:', {
+      projectName: message.projectName,
+      storyId: message.storyId,
+    });
+
+    try {
+      // Get the context for regeneration
+      const feature = message.feature || { name: 'Unknown Feature' };
+      const personas = message.personas || [];
+
+      const prompt = `Regenerate this user story with improved clarity and detail:
+
+FEATURE: ${feature.name} - ${feature.description || 'No description'}
+
+PERSONAS:
+${personas.map((p: any) => `- ${p.name}`).join('\n') || 'No personas'}
+
+Generate a single improved user story with acceptance criteria and clarifying questions.`;
+
+      const generatedContent = await this.buildModeService.generateStageContent(
+        message.projectName,
+        'stories',
+        `${this.USER_STORY_PROMPT}\n\n${prompt}`
+      );
+
+      // Parse the regenerated story
+      let updatedStory: any;
+      try {
+        const jsonMatch = generatedContent.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          updatedStory = Array.isArray(parsed) ? parsed[0] : parsed;
+        } else {
+          updatedStory = {
+            description: generatedContent,
+            acceptanceCriteria: [],
+            clarifyingQuestions: [],
+          };
+        }
+      } catch {
+        updatedStory = {
+          description: generatedContent,
+          acceptanceCriteria: [],
+          clarifyingQuestions: [],
+        };
+      }
+
+      // Preserve the original ID
+      updatedStory.id = message.storyId;
+
+      webview.postMessage({
+        type: 'story-updated',
+        projectName: message.projectName,
+        storyId: message.storyId,
+        story: updatedStory,
+      });
+
+      console.log('[BuildModeHandler] Story regenerated:', {
+        projectName: message.projectName,
+        storyId: message.storyId,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to regenerate story:', error);
+
+      webview.postMessage({
+        type: 'story-regeneration-error',
+        projectName: message.projectName,
+        storyId: message.storyId,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
   /**
    * Handle errors and send sanitized error messages to webview.
    */
-  private async handleError(error: unknown, webview: any, messageType: string): Promise<void> {
+  private async handleError(
+    error: unknown,
+    webview: any,
+    messageType: string
+  ): Promise<void> {
     const errorObj = error instanceof Error ? error : new Error(String(error));
     const sanitizedError = this.errorSanitizer.sanitize(errorObj);
 

@@ -1709,6 +1709,30 @@ export default function App() {
         // Handle individual persona regeneration error
         console.error(`[Personaut] Persona regeneration error:`, message.error);
         addBuildLog(`Persona regeneration failed: ${message.error}`, 'error');
+      } else if (message.type === 'user-stories-generated') {
+        // Handle user stories generated (Task 23.3)
+        console.log(`[Personaut] User stories generated:`, message.stories?.length);
+        if (message.stories) {
+          setUserStories(message.stories);
+          addBuildLog(`Generated ${message.stories.length} user stories`, 'success');
+        }
+      } else if (message.type === 'story-updated') {
+        // Handle individual story regeneration (Task 23.4)
+        console.log(`[Personaut] Story updated:`, message.storyId);
+        if (message.story) {
+          setUserStories((prev) =>
+            prev.map((s) => (s.id === message.storyId ? { ...s, ...message.story } : s))
+          );
+          addBuildLog(`Regenerated story: ${message.story.title || message.storyId}`, 'success');
+        }
+      } else if (message.type === 'user-stories-generation-error') {
+        // Handle user stories generation error
+        console.error(`[Personaut] User stories generation error:`, message.error);
+        addBuildLog(`User stories generation failed: ${message.error}`, 'error');
+      } else if (message.type === 'story-regeneration-error') {
+        // Handle individual story regeneration error
+        console.error(`[Personaut] Story regeneration error:`, message.error);
+        addBuildLog(`Story regeneration failed: ${message.error}`, 'error');
       }
     };
 
@@ -3761,16 +3785,24 @@ Next steps:
                             <span className="text-xs text-muted">{userStories.length} stories</span>
                             <button
                               onClick={() => {
+                                if (!projectName) return;
                                 setUserStories([]);
-                                addBuildLog(
-                                  'Stories cleared. Click "Save & Next" to regenerate.',
-                                  'info'
-                                );
+                                setStoriesLoading(true);
+                                addBuildLog('Regenerating all user stories...', 'info');
+                                vscode.postMessage({
+                                  type: 'generate-user-stories',
+                                  projectName,
+                                  features: generatedFeatures.length > 0
+                                    ? generatedFeatures
+                                    : buildData.features.map((f: string) => ({ name: f })),
+                                  personas: generatedPersonas,
+                                });
+                                setTimeout(() => setStoriesLoading(false), 90000);
                               }}
                               className="text-[10px] px-2 py-1 text-muted hover:text-primary border border-dashed border-border rounded hover:bg-tertiary/50 transition-colors"
-                              title="Clear and regenerate stories"
+                              title="Clear and regenerate all stories"
                             >
-                              ↺ Regenerate
+                              ↺ Regenerate All
                             </button>
                           </div>
                         )}
@@ -3784,8 +3816,35 @@ Next steps:
                           </div>
                         </div>
                       ) : userStories.length === 0 ? (
-                        <div className="text-center py-8 text-muted text-sm">
-                          Stories will be generated when you complete the Team step.
+                        <div className="text-center py-8">
+                          <div className="text-muted text-sm mb-4">
+                            Generate user stories from your features and personas.
+                          </div>
+                          <button
+                            onClick={() => {
+                              if (!projectName) {
+                                addBuildLog('Please create a project first', 'error');
+                                return;
+                              }
+                              setStoriesLoading(true);
+                              addBuildLog('Generating user stories from features...', 'info');
+                              vscode.postMessage({
+                                type: 'generate-user-stories',
+                                projectName,
+                                features: generatedFeatures.length > 0
+                                  ? generatedFeatures
+                                  : buildData.features.map((f: string) => ({ name: f })),
+                                personas: generatedPersonas,
+                              });
+                              // Set timeout to stop loading state after 90 seconds
+                              setTimeout(() => {
+                                setStoriesLoading(false);
+                              }, 90000);
+                            }}
+                            className="px-4 py-2 bg-accent text-accent-text rounded-lg hover:bg-accent-hover transition-colors text-sm font-medium"
+                          >
+                            Generate User Stories
+                          </button>
                         </div>
                       ) : (
                         <div

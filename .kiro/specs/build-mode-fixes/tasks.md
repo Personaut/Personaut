@@ -484,13 +484,13 @@
     - Generate stories in proper format (As a X, I want Y, so that Z)
     - Include acceptance criteria and clarifying questions
     - _Requirements: 13.1, 13.2, 13.3_
-  - [ ] 23.2 Add generate-user-stories handler to BuildModeHandler
+  - [x] 23.2 Add generate-user-stories handler to BuildModeHandler
     - Accept features and personas from webview
     - Invoke UX agent to generate user stories
     - Parse and validate generated stories
     - Send user-stories-generated response
     - _Requirements: 13.1_
-  - [ ] 23.3 Update webview for stories stage
+  - [x] 23.3 Update webview for stories stage
     - Display generated stories in expandable cards
     - Make all fields editable (title, description, criteria, questions)
     - Add clarifying question answer inputs
@@ -498,7 +498,7 @@
     - Add "Add Story Manually" button
     - Add "Regenerate All Stories" button
     - _Requirements: 13.3, 13.4_
-  - [ ] 23.4 Add regenerate-single-story handler
+  - [x] 23.4 Add regenerate-single-story handler
     - Accept storyId and context from webview
     - Invoke UX agent to regenerate only that story
     - Send story-updated response
