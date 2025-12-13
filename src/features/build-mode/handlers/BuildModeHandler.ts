@@ -27,7 +27,7 @@ export class BuildModeHandler implements IFeatureHandler {
 
   constructor(
     private readonly buildModeService: BuildModeService,
-    _stageManager: StageManager,
+    private readonly stageManager: StageManager,
     _contentStreamer: ContentStreamer,
     _buildLogManager: BuildLogManager,
     private readonly inputValidator: InputValidator
@@ -127,6 +127,19 @@ export class BuildModeHandler implements IFeatureHandler {
           break;
         case 'clear-build-context':
           await this.handleClearBuildContext(message, webview);
+          break;
+        // Iteration data handlers (Task 7)
+        case 'save-iteration-feedback':
+          await this.handleSaveIterationFeedback(message, webview);
+          break;
+        case 'save-consolidated-feedback':
+          await this.handleSaveConsolidatedFeedback(message, webview);
+          break;
+        case 'save-screenshot':
+          await this.handleSaveScreenshot(message, webview);
+          break;
+        case 'load-iteration-data':
+          await this.handleLoadIterationData(message, webview);
           break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
@@ -594,6 +607,129 @@ export class BuildModeHandler implements IFeatureHandler {
     // But we acknowledge the request
     webview.postMessage({
       type: 'build-context-cleared',
+    });
+  }
+
+  // ==================== Iteration Data Handlers (Task 7) ====================
+
+  /**
+   * Validate iteration number.
+   * @throws Error if iteration number is invalid
+   */
+  private validateIterationNumber(iterationNumber: number | undefined): void {
+    if (iterationNumber === undefined || iterationNumber === null) {
+      throw new Error('Iteration number is required');
+    }
+    if (!Number.isInteger(iterationNumber) || iterationNumber < 1) {
+      throw new Error('Iteration number must be a positive integer');
+    }
+  }
+
+  /**
+   * Handle save iteration feedback request.
+   * Validates: Requirements 5.2
+   */
+  private async handleSaveIterationFeedback(message: WebviewMessage, webview: any): Promise<void> {
+    this.validateProjectName(message.projectName);
+    this.validateIterationNumber(message.iterationNumber);
+
+    if (!message.feedback || !Array.isArray(message.feedback)) {
+      throw new Error('Feedback array is required');
+    }
+
+    await this.stageManager.saveIterationFeedback(
+      message.projectName,
+      message.iterationNumber,
+      message.feedback
+    );
+
+    webview.postMessage({
+      type: 'feedback-saved',
+      projectName: message.projectName,
+      iterationNumber: message.iterationNumber,
+    });
+  }
+
+  /**
+   * Handle save consolidated feedback request.
+   * Validates: Requirements 5.3
+   */
+  private async handleSaveConsolidatedFeedback(message: WebviewMessage, webview: any): Promise<void> {
+    this.validateProjectName(message.projectName);
+    this.validateIterationNumber(message.iterationNumber);
+
+    if (typeof message.markdown !== 'string') {
+      throw new Error('Markdown content is required');
+    }
+
+    await this.stageManager.saveConsolidatedFeedback(
+      message.projectName,
+      message.iterationNumber,
+      message.markdown
+    );
+
+    webview.postMessage({
+      type: 'consolidated-feedback-saved',
+      projectName: message.projectName,
+      iterationNumber: message.iterationNumber,
+    });
+  }
+
+  /**
+   * Handle save screenshot request.
+   * Validates: Requirements 5.4
+   */
+  private async handleSaveScreenshot(message: WebviewMessage, webview: any): Promise<void> {
+    this.validateProjectName(message.projectName);
+    this.validateIterationNumber(message.iterationNumber);
+
+    if (!message.pageName || typeof message.pageName !== 'string') {
+      throw new Error('Page name is required');
+    }
+
+    if (!message.data) {
+      throw new Error('Screenshot data is required');
+    }
+
+    // Convert base64 string to Buffer if needed
+    const buffer = Buffer.isBuffer(message.data)
+      ? message.data
+      : Buffer.from(message.data, 'base64');
+
+    const screenshotPath = await this.stageManager.saveScreenshot(
+      message.projectName,
+      message.iterationNumber,
+      message.pageName,
+      buffer
+    );
+
+    webview.postMessage({
+      type: 'screenshot-saved',
+      projectName: message.projectName,
+      iterationNumber: message.iterationNumber,
+      pageName: message.pageName,
+      path: screenshotPath,
+    });
+  }
+
+  /**
+   * Handle load iteration data request.
+   * Validates: Requirements 5.5
+   */
+  private async handleLoadIterationData(message: WebviewMessage, webview: any): Promise<void> {
+    this.validateProjectName(message.projectName);
+    this.validateIterationNumber(message.iterationNumber);
+
+    const iterationData = await this.stageManager.loadIterationData(
+      message.projectName,
+      message.iterationNumber
+    );
+
+    webview.postMessage({
+      type: 'iteration-data-loaded',
+      projectName: message.projectName,
+      iterationNumber: message.iterationNumber,
+      data: iterationData,
     });
   }
 
