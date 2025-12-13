@@ -12,6 +12,7 @@ import { MCPToolAdapter } from '../tools/MCPToolAdapter';
 import { TerminalManager } from '../integrations/TerminalManager';
 import { getAgentSystemPrompt } from '../prompts/SystemPrompts';
 import { AgentMode, ContextFile, AgentSettings, AgentConfig } from './AgentTypes';
+import { InputValidator } from '../../shared/services/InputValidator';
 
 /**
  * Agent class handles AI conversations and tool execution
@@ -383,16 +384,12 @@ export class Agent {
   }
 
   /**
-   * Basic sanitization of AI response
-   * TODO: Use InputValidator from shared services when available
+   * Sanitize AI response using InputValidator
+   * Prevents XSS attacks by sanitizing HTML and removing dangerous patterns
    */
   private sanitizeResponse(text: string): string {
-    // Basic XSS prevention
-    return text
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#x27;');
+    const validator = new InputValidator();
+    return validator.sanitizeResponse(text);
   }
 
   /**

@@ -168,6 +168,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       'save-persona',
       'generate-persona-prompt',
       'generate-persona-backstory',
+      'generate-backstory',
     ];
     return personasMessageTypes.includes(type);
   }

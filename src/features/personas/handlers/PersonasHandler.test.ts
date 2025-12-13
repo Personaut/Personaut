@@ -56,7 +56,7 @@ describe('PersonasHandler', () => {
 
       expect(mockPersonasService.getPersonas).toHaveBeenCalled();
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'personas-list',
+        type: 'personas-loaded',
         personas,
       });
     });
@@ -305,16 +305,27 @@ describe('PersonasHandler', () => {
   describe('handle - generate-persona-backstory', () => {
     it('should generate a backstory for a persona', async () => {
       const backstory = 'This is a generated backstory';
+      const mockPersona = {
+        id: '123',
+        name: 'Test User',
+        attributes: { age: '30' },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        backstory,
+      };
+      
       mockPersonasService.generateBackstory.mockResolvedValue(backstory);
+      mockPersonasService.getPersonaById.mockResolvedValue(mockPersona);
 
       await personasHandler.handle({ type: 'generate-persona-backstory', id: '123' }, mockWebview);
 
       expect(mockInputValidator.validateInput).toHaveBeenCalledWith('123');
       expect(mockPersonasService.generateBackstory).toHaveBeenCalledWith('123');
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'persona-backstory-generated',
+        type: 'backstory-generated',
         id: '123',
         backstory,
+        persona: mockPersona,
       });
     });
 
@@ -329,6 +340,34 @@ describe('PersonasHandler', () => {
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
         type: 'error',
         message: expect.any(String),
+      });
+    });
+  });
+
+  describe('handle - generate-backstory (alias)', () => {
+    it('should generate a backstory for a persona using the generate-backstory alias', async () => {
+      const backstory = 'This is a generated backstory';
+      const mockPersona = {
+        id: '123',
+        name: 'Test User',
+        attributes: { age: '30' },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        backstory,
+      };
+      
+      mockPersonasService.generateBackstory.mockResolvedValue(backstory);
+      mockPersonasService.getPersonaById.mockResolvedValue(mockPersona);
+
+      await personasHandler.handle({ type: 'generate-backstory', id: '123' }, mockWebview);
+
+      expect(mockInputValidator.validateInput).toHaveBeenCalledWith('123');
+      expect(mockPersonasService.generateBackstory).toHaveBeenCalledWith('123');
+      expect(mockWebview.postMessage).toHaveBeenCalledWith({
+        type: 'backstory-generated',
+        id: '123',
+        backstory,
+        persona: mockPersona,
       });
     });
   });

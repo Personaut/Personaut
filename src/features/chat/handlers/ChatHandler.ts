@@ -262,8 +262,8 @@ export class ChatHandler implements IFeatureHandler {
     const conversations = this.chatService.getConversations();
 
     webview.postMessage({
-      type: 'history',
-      conversations,
+      type: 'history-updated',
+      history: conversations,
     });
   }
 

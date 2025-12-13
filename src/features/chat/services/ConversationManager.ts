@@ -13,6 +13,10 @@
 import { Message } from '../../../shared/types/CommonTypes';
 import { Conversation, PaginatedMessages, ConversationStorage } from '../types/ChatTypes';
 import { retryWithBackoff } from '../../../shared/utils/retryUtils';
+import {
+  AgentErrorType,
+  wrapAsAgentError,
+} from '../../../shared/types/AgentErrorTypes';
 
 /**
  * Configuration constants for conversation management
@@ -175,13 +179,22 @@ export class ConversationManager {
 
         successful.push(conversation);
       } catch (error) {
+        // Wrap as AgentError for consistent error handling
+        const agentError = wrapAsAgentError(
+          error,
+          AgentErrorType.LOAD_FAILED,
+          rawConv?.id || 'unknown'
+        );
+
         // Log and skip failed migrations
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         failed.push({
           id: rawConv?.id || 'unknown',
-          error: errorMessage,
+          error: agentError.message,
         });
-        console.error(`[ConversationManager] Migration failed for conversation ${rawConv?.id}:`, error);
+        console.error(
+          `[ConversationManager] Migration failed for conversation ${rawConv?.id}:`,
+          agentError.toJSON()
+        );
       }
     }
 
@@ -190,7 +203,13 @@ export class ConversationManager {
       try {
         await this.storage.update(STORAGE_KEY, successful);
       } catch (error) {
-        console.error('[ConversationManager] Failed to save migrated conversations:', error);
+        // Wrap as AgentError for consistent error handling
+        const agentError = wrapAsAgentError(error, AgentErrorType.PERSISTENCE_FAILED);
+
+        console.error(
+          '[ConversationManager] Failed to save migrated conversations:',
+          agentError.toJSON()
+        );
       }
     }
 

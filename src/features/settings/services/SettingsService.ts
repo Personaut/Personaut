@@ -127,10 +127,31 @@ export class SettingsService {
       return;
     }
 
-    console.log('[SettingsService] Notifying AgentManager of settings changes:', {
-      changedSettings: Object.keys(changedSettings),
-      timestamp: Date.now(),
-    });
+    // Critical settings that require agent reinitialization
+    const criticalSettings = [
+      'provider',
+      'geminiApiKey',
+      'awsAccessKey',
+      'awsSecretKey',
+      'geminiModel',
+      'bedrockModel',
+      'awsRegion',
+    ];
+
+    const changedKeys = Object.keys(changedSettings);
+    const isCriticalChange = changedKeys.some((key) => criticalSettings.includes(key));
+
+    if (isCriticalChange) {
+      console.log('[SettingsService] Critical settings changed, notifying AgentManager:', {
+        changedSettings: changedKeys,
+        timestamp: Date.now(),
+      });
+    } else {
+      console.log('[SettingsService] Non-critical settings changed, no agent reinitialization needed:', {
+        changedSettings: changedKeys,
+        timestamp: Date.now(),
+      });
+    }
 
     // Get full current settings to pass to AgentManager
     const currentSettings = await this.getSettings();

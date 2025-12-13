@@ -48,6 +48,7 @@ export class PersonasHandler implements IFeatureHandler {
           await this.generatePrompt(message.id, webview);
           break;
         case 'generate-persona-backstory':
+        case 'generate-backstory':
           await this.generateBackstory(message.id, webview);
           break;
         default:
@@ -57,7 +58,7 @@ export class PersonasHandler implements IFeatureHandler {
       const sanitizedError = this.errorSanitizer.sanitize(error as Error);
       console.error('[PersonasHandler] Error:', error);
       webview.postMessage({
-        type: 'error',
+        type: 'persona-error',
         message: sanitizedError.userMessage,
       });
     }
@@ -69,7 +70,7 @@ export class PersonasHandler implements IFeatureHandler {
   private async getPersonas(webview: vscode.Webview): Promise<void> {
     const personas = await this.personasService.getPersonas();
     webview.postMessage({
-      type: 'personas-list',
+      type: 'personas-loaded',
       personas,
     });
   }

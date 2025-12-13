@@ -228,6 +228,22 @@ describe('SidebarProvider', () => {
     });
 
     /**
+     * Test routing generate-backstory message to personas handler
+     * Validates: Requirements 9.2
+     */
+    it('should route generate-backstory message to personas handler', async () => {
+      const message: WebviewMessage = {
+        type: 'generate-backstory',
+        id: '123',
+      };
+
+      await messageHandler(message);
+
+      expect(mockPersonasHandler.handle).toHaveBeenCalledWith(message, mockWebview);
+      expect(mockChatHandler.handle).not.toHaveBeenCalled();
+    });
+
+    /**
      * Test routing feedback messages
      * Validates: Requirements 9.2
      */

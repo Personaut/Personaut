@@ -78,3 +78,26 @@ export type {
   MCPSchemaValidationResult,
   ProviderImageSupport,
 } from './ValidationTypes';
+
+// Agent Error Types
+export {
+  AgentErrorType,
+  AgentError,
+  AgentErrorMessages,
+  AgentErrorTroubleshooting,
+  isAgentError,
+  wrapAsAgentError,
+} from './AgentErrorTypes';
+
+// Message Types
+export {
+  ChatMessageType,
+  PersonaMessageType,
+  SettingsMessageType,
+  FeedbackMessageType,
+  BuildModeMessageType,
+  GenericMessageType,
+  ProviderType,
+  isValidMessageType,
+} from './MessageTypes';
+export type { MessageType } from './MessageTypes';

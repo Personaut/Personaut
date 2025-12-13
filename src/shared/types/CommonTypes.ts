@@ -12,6 +12,17 @@ export interface Message {
   role: 'user' | 'model' | 'error';
   text: string;
   images?: string[]; // Base64 encoded images
+  metadata?: MessageMetadata; // Optional metadata for agent-to-agent communication
+}
+
+/**
+ * Metadata for messages, used for agent-to-agent communication
+ */
+export interface MessageMetadata {
+  senderId?: string; // Conversation ID of the sending agent
+  senderType?: 'user' | 'agent'; // Type of sender
+  timestamp?: number; // Message timestamp
+  sessionId?: string; // Session ID for security validation
 }
 
 /**

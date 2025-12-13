@@ -5,7 +5,7 @@ interface SettingsTabProps {
   onSettingsChanged?: (settings: Settings) => void;
 }
 
-type ApiProvider = 'nativeIde' | 'gemini' | 'bedrock' | 'openai';
+type ApiProvider = 'gemini' | 'bedrock';
 
 interface Settings {
   provider: ApiProvider;
@@ -173,7 +173,7 @@ const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ value, onChange, placeholder,
 };
 
 const defaultSettings: Settings = {
-  provider: 'nativeIde',
+  provider: 'gemini',
   theme: 'match-ide',
   geminiApiKey: '',
   geminiModel: 'gemini-2.5-flash',
@@ -208,7 +208,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
     'general' | 'provider' | 'artifacts' | 'data' | 'about'
   >('general');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [appName, setAppName] = useState<string>('');
+  const [_appName, setAppName] = useState<string>('');
 
   const [showClearDataConfirm, setShowClearDataConfirm] = useState(false);
 
@@ -472,16 +472,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
                 <div className="space-y-2 mb-6">
                   {[
                     {
-                      id: 'nativeIde' as const,
-                      name: `Native IDE (${appName || 'VS Code'})`,
-                      desc: "Use the IDE's language model API - requires GitHub Copilot Chat",
-                    },
-                    {
                       id: 'gemini' as const,
                       name: 'Google Gemini',
                       desc: "Use Google's Gemini API",
                     },
-                    { id: 'openai' as const, name: 'OpenAI', desc: "Use OpenAI's GPT models" },
                     {
                       id: 'bedrock' as const,
                       name: 'AWS Bedrock',
@@ -511,26 +505,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
                   ))}
                 </div>
 
-                {/* Native IDE Notice */}
-                {settings.provider === 'nativeIde' && (
-                  <div className="bg-accent/10 border border-accent/30 rounded-lg p-4 mb-6">
-                    <div className="flex items-start gap-2">
-                      <span className="text-accent">✨</span>
-                      <div>
-                        <div className="text-sm font-medium text-accent">Using Native IDE</div>
-                        <div className="text-xs text-muted mt-1">
-                          This mode uses the VS Code Language Model API (vscode.lm) to access AI
-                          models exposed by other extensions like GitHub Copilot Chat.
-                        </div>
-                        <div className="text-xs text-yellow-500 mt-2 p-2 bg-yellow-500/10 rounded">
-                          ⚠️ <strong>Note for Kiro &amp; Cursor users:</strong> These IDEs do not
-                          expose their native AI agents to extensions. Please select a different
-                          provider (Gemini, OpenAI, or AWS Bedrock) and configure your API key.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+
 
                 {/* Gemini Config */}
                 {settings.provider === 'gemini' && (
@@ -615,32 +590,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
                   </div>
                 )}
 
-                {/* OpenAI Config */}
-                {settings.provider === 'openai' && (
-                  <div className="space-y-4">
-                    <label className="block">
-                      <span className="text-xs font-bold text-muted uppercase tracking-wider">
-                        API Key
-                      </span>
-                      <div className="mt-2">
-                        <ApiKeyInput
-                          value={settings.openaiApiKey}
-                          onChange={(value) => updateSetting('openaiApiKey', value)}
-                          placeholder="Enter your OpenAI API key"
-                        />
-                      </div>
-                    </label>
-                    <p className="text-xs text-muted">
-                      Get your API key from{' '}
-                      <a
-                        href="https://platform.openai.com/api-keys"
-                        className="text-accent hover:underline"
-                      >
-                        OpenAI Platform
-                      </a>
-                    </p>
-                  </div>
-                )}
+
 
                 {/* AWS Bedrock Config */}
                 {settings.provider === 'bedrock' && (

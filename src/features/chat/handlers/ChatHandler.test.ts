@@ -35,7 +35,7 @@ describe('ChatHandler', () => {
       getConversations: jest.fn(),
       deleteConversation: jest.fn(),
       clearAllConversations: jest.fn(),
-      createNewConversation: jest.fn(),
+      createNewConversation: jest.fn().mockReturnValue('test-conversation-id'),
     } as any;
 
     mockInputValidator = {
@@ -66,7 +66,14 @@ describe('ChatHandler', () => {
       await chatHandler.handle(message, mockWebview);
 
       expect(mockInputValidator.validateInput).toHaveBeenCalledWith('Hello, world!');
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith('Hello, world!', []);
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(
+        expect.any(String), // conversationId
+        'Hello, world!',
+        [],
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should handle user input with context files', async () => {
@@ -82,7 +89,14 @@ describe('ChatHandler', () => {
 
       await chatHandler.handle(message, mockWebview);
 
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith('Analyze this file', contextFiles);
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(
+        expect.any(String), // conversationId
+        'Analyze this file',
+        contextFiles,
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should reject invalid input', async () => {
@@ -291,6 +305,39 @@ describe('ChatHandler', () => {
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
         type: 'new-conversation-created',
         conversationId: 'conv_new_123',
+      });
+    });
+  });
+
+  describe('handle - get-history', () => {
+    it('should return conversation history', async () => {
+      const mockConversations: Conversation[] = [
+        {
+          id: 'conv_1',
+          title: 'Conversation 1',
+          timestamp: Date.now(),
+          messages: [],
+        },
+        {
+          id: 'conv_2',
+          title: 'Conversation 2',
+          timestamp: Date.now(),
+          messages: [],
+        },
+      ];
+
+      mockChatService.getConversations.mockReturnValue(mockConversations);
+
+      const message: WebviewMessage = {
+        type: 'get-history',
+      };
+
+      await chatHandler.handle(message, mockWebview);
+
+      expect(mockChatService.getConversations).toHaveBeenCalled();
+      expect(mockWebview.postMessage).toHaveBeenCalledWith({
+        type: 'history-updated',
+        history: mockConversations,
       });
     });
   });

@@ -134,6 +134,11 @@ describe('Property 6: Test File Naming', () => {
         return;
       }
 
+      // Skip integration tests as they don't have matching source files
+      if (testFile.includes('__tests__/integration/')) {
+        return;
+      }
+
       if (!hasMatchingSourceFile(testFile)) {
         violations.push(testFile);
       }

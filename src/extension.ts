@@ -191,11 +191,31 @@ export function activate(context: vscode.ExtensionContext) {
     return new ConversationManager(storage);
   });
 
-  // Register AgentManager (will be initialized with webview after SidebarProvider is created)
+  // Register AgentManager (will be initialized with a temporary webview, then updated when real webview is ready)
   let agentManagerInstance: AgentManager | null = null;
   container.register('agentManager', () => {
     if (!agentManagerInstance) {
-      throw new Error('AgentManager not initialized. SidebarProvider must be created first.');
+      // Create a temporary AgentManager with a mock webview
+      // This will be updated with the real webview when SidebarProvider is ready
+      const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
+      const conversationManager = container.resolve<ConversationManager>('conversationManager');
+      
+      // Create a minimal mock webview for initialization
+      const mockWebview = {
+        postMessage: () => Promise.resolve(true),
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        asWebviewUri: (uri: vscode.Uri) => uri,
+        cspSource: '',
+        html: '',
+        options: {},
+      } as any as vscode.Webview;
+      
+      agentManagerInstance = new AgentManager({
+        webview: mockWebview,
+        tokenStorageService,
+        conversationManager,
+      });
+      console.log('[Extension] AgentManager initialized with mock webview');
     }
     return agentManagerInstance;
   });
@@ -209,8 +229,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   container.register('personasService', () => {
     const personaStorage = container.resolve<PersonaStorage>('personaStorage');
-    const aiProvider = container.resolve<IProvider>('aiProvider');
-    return new PersonasService(personaStorage, aiProvider);
+    const agentManager = container.resolve<AgentManager>('agentManager');
+    return new PersonasService(personaStorage, agentManager);
   });
 
   container.register('feedbackService', () => {
@@ -229,15 +249,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   container.register('settingsService', () => {
     const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
-    // AgentManager is optional - it will be available after SidebarProvider initialization
-    // We pass undefined initially, and the service will work without agent notifications
-    try {
-      const agentManager = container.resolve<AgentManager>('agentManager');
-      return new SettingsService(tokenStorageService, agentManager);
-    } catch {
-      // AgentManager not yet initialized, create without it
-      return new SettingsService(tokenStorageService);
-    }
+    const agentManager = container.resolve<AgentManager>('agentManager');
+    return new SettingsService(tokenStorageService, agentManager);
   });
 
   // Register feature handlers (lazy initialization to allow AgentManager to be created first)

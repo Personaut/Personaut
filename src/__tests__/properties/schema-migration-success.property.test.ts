@@ -203,7 +203,7 @@ describe('Property 22: Schema Migration Success', () => {
   it('should handle mixed V1 and V2 conversations correctly', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.array(conversationV1Arb, { minLength: 2, maxLength: 10 }),
+        uniqueConversationsArb,
         async (conversations) => {
           // Split conversations into V1 and V2
           const midpoint = Math.floor(conversations.length / 2);
