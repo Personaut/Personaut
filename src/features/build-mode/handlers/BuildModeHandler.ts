@@ -755,7 +755,10 @@ export class BuildModeHandler implements IFeatureHandler {
    * Handle save consolidated feedback request.
    * Validates: Requirements 5.3
    */
-  private async handleSaveConsolidatedFeedback(message: WebviewMessage, webview: any): Promise<void> {
+  private async handleSaveConsolidatedFeedback(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
     this.validateProjectName(message.projectName);
     this.validateIterationNumber(message.iterationNumber);
 
@@ -854,7 +857,12 @@ export class BuildModeHandler implements IFeatureHandler {
    * Generate persona attributes from demographics.
    */
   private generatePersonaAttributes(
-    demographics: { ageMin?: number; ageMax?: number; occupations?: string[]; description?: string },
+    demographics: {
+      ageMin?: number;
+      ageMax?: number;
+      occupations?: string[];
+      description?: string;
+    },
     index: number
   ): { name: string; attributes: Record<string, string> } {
     // Generate random age within range
@@ -984,7 +992,10 @@ export class BuildModeHandler implements IFeatureHandler {
    * Handle regenerate single persona request.
    * Validates: Requirements 9.5
    */
-  private async handleRegenerateSinglePersona(message: WebviewMessage, webview: any): Promise<void> {
+  private async handleRegenerateSinglePersona(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
     if (!this.personasService) {
       throw new Error('PersonasService is not available');
     }
