@@ -375,8 +375,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
 
   return (
     <div className="flex flex-col h-full bg-primary">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-secondary border-b border-border">
+      {/* Header - Sticky */}
+      <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 bg-secondary border-b border-border">
         <h2 className="text-xs font-bold text-muted uppercase tracking-widest">Settings</h2>
         {activeSection !== 'about' && (
           <button
