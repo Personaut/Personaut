@@ -195,17 +195,17 @@
     - Call PersonasService.generateBackstory(personaId) to regenerate only that persona
     - Send persona-updated response with updated persona
     - _Requirements: 9.5_
-  - [ ] 12.3 Update webview to display persona attributes as tags
+  - [x] 12.3 Update webview to display persona attributes as tags
     - Extract attributes from persona.attributes object
     - Display as colored tag badges below backstory
     - Show age, occupation, and other demographic attributes
     - _Requirements: 9.3_
-  - [ ] 12.4 Add individual regenerate button to each persona card
+  - [x] 12.4 Add individual regenerate button to each persona card
     - Add "Regenerate Backstory" button to each persona in the list
     - Call regenerate-single-persona handler with persona ID
     - Update only that persona in the generatedPersonas state
     - _Requirements: 9.5_
-  - [ ] 12.5 Update persona save logic to use Persona format
+  - [x] 12.5 Update persona save logic to use Persona format
     - When saving users stage, convert generatedPersonas to proper Persona format
     - Ensure all required fields (id, name, attributes, backstory, createdAt, updatedAt) are present
     - _Requirements: 9.7_

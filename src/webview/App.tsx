@@ -279,6 +279,7 @@ export default function App() {
     age: string;
     occupation: string;
     backstory: string;
+    attributes?: Record<string, string>; // Additional attributes for display as tags
   }
   const [generatedPersonas, setGeneratedPersonas] = useState<GeneratedPersona[]>(
     savedState?.generatedPersonas || []
@@ -1668,6 +1669,46 @@ export default function App() {
         // Handle screenshot saved confirmation (Task 8.1)
         console.log(`[Personaut] Screenshot saved: ${message.pageName} for project ${message.projectName}, iteration ${message.iterationNumber}`);
         addBuildLog(`Screenshot saved: ${message.pageName}`, 'success');
+      } else if (message.type === 'personas-generated') {
+        // Handle personas generated from demographics (Task 12.3)
+        console.log(`[Personaut] Personas generated: ${message.count} personas`);
+        if (message.personas) {
+          const newPersonas = message.personas.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            age: p.attributes?.age || '',
+            occupation: p.attributes?.occupation || '',
+            backstory: p.backstory || '',
+            attributes: p.attributes,
+          }));
+          setGeneratedPersonas(newPersonas);
+          addBuildLog(`Generated ${message.count} personas`, 'success');
+        }
+      } else if (message.type === 'persona-updated') {
+        // Handle individual persona regeneration (Task 12.4)
+        console.log(`[Personaut] Persona updated: ${message.personaId}`);
+        if (message.persona) {
+          setGeneratedPersonas((prev) =>
+            prev.map((p) =>
+              p.id === message.personaId
+                ? {
+                  ...p,
+                  backstory: message.backstory || message.persona.backstory || p.backstory,
+                  attributes: message.persona.attributes || p.attributes,
+                }
+                : p
+            )
+          );
+          addBuildLog(`Regenerated persona backstory`, 'success');
+        }
+      } else if (message.type === 'personas-generation-error') {
+        // Handle persona generation error
+        console.error(`[Personaut] Persona generation error:`, message.error);
+        addBuildLog(`Persona generation failed: ${message.error}`, 'error');
+      } else if (message.type === 'persona-regeneration-error') {
+        // Handle individual persona regeneration error
+        console.error(`[Personaut] Persona regeneration error:`, message.error);
+        addBuildLog(`Persona regeneration failed: ${message.error}`, 'error');
       }
     };
 
@@ -2464,11 +2505,24 @@ Next steps:
         // Include projectTitle for idea stage (Requirements 11.4)
         return { idea: buildData.idea, projectTitle: projectTitle.trim() };
       case 'users':
+        // Convert generatedPersonas to proper Persona format (Task 12.5)
+        const formattedPersonas = generatedPersonas.map((p) => ({
+          id: p.id,
+          name: p.name,
+          attributes: {
+            age: p.age,
+            occupation: p.occupation,
+            ...(p.attributes || {}),
+          },
+          backstory: p.backstory || '',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }));
         return usersMode === 'personas'
           ? {
             personas: selectedBuildPersonaIds.map((id) => buildPersonas.find((p) => p.id === id)),
           }
-          : { personas: generatedPersonas, demographics: buildData.users.demographics };
+          : { personas: formattedPersonas, demographics: buildData.users.demographics };
       case 'features':
         // Return full feature objects for both modes (Requirements 4.3)
         return featuresMode === 'define'
@@ -4762,6 +4816,54 @@ OUTPUT FORMAT: Return ONLY a JSON code block with this structure:
                                     className="w-full bg-primary border border-border rounded px-3 py-2 text-sm text-primary placeholder-muted focus:outline-none focus:border-accent resize-none min-h-[80px]"
                                     placeholder="Backstory..."
                                   />
+                                  {/* Attribute Tags (Task 12.3) */}
+                                  <div className="flex flex-wrap gap-1 mt-2">
+                                    <span className="px-2 py-0.5 bg-accent/20 text-accent text-xs rounded-full">
+                                      Age: {persona.age}
+                                    </span>
+                                    <span className="px-2 py-0.5 bg-success/20 text-success text-xs rounded-full">
+                                      {persona.occupation}
+                                    </span>
+                                    {persona.attributes &&
+                                      Object.entries(persona.attributes)
+                                        .filter(([key]) => !['age', 'occupation', 'personaIndex', 'context'].includes(key))
+                                        .map(([key, value]) => (
+                                          <span
+                                            key={key}
+                                            className="px-2 py-0.5 bg-info/20 text-info text-xs rounded-full"
+                                          >
+                                            {key}: {value}
+                                          </span>
+                                        ))}
+                                  </div>
+                                  {/* Regenerate Button (Task 12.4) */}
+                                  <button
+                                    onClick={() => {
+                                      vscode.postMessage({
+                                        type: 'regenerate-single-persona',
+                                        personaId: persona.id,
+                                      });
+                                    }}
+                                    className="mt-2 text-xs text-accent hover:text-accent-hover flex items-center gap-1"
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      width="12"
+                                      height="12"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    >
+                                      <path d="M21 12a9 9 0 0 0-9-9 9 9 0 0 0-7.5 4" />
+                                      <path d="M3 12a9 9 0 0 0 9 9 9 9 0 0 0 7.5-4" />
+                                      <path d="M4.5 7.5 3 12l4.5-1.5" />
+                                      <path d="M19.5 16.5 21 12l-4.5 1.5" />
+                                    </svg>
+                                    Regenerate Backstory
+                                  </button>
                                 </div>
                               ))}
                             </div>
