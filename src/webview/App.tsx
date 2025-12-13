@@ -1640,6 +1640,34 @@ export default function App() {
       } else if (message.type === 'build-log-error') {
         // Build log operation error
         console.error(`[Personaut] Build log error:`, message.error);
+      } else if (message.type === 'iteration-data-loaded') {
+        // Handle iteration data loaded from file (Task 8.1)
+        console.log(`[Personaut] Iteration data loaded for project ${message.projectName}, iteration ${message.iterationNumber}`);
+        if (message.data) {
+          // Update iteration state with loaded data if needed
+          // This is primarily for restoring state after session invalidation
+          if (message.data.feedback) {
+            console.log(`[Personaut] Loaded ${message.data.feedback.length} feedback entries`);
+          }
+          if (message.data.consolidatedFeedback) {
+            console.log(`[Personaut] Loaded consolidated feedback (${message.data.consolidatedFeedback.length} chars)`);
+          }
+          if (message.data.screenshots?.length > 0) {
+            console.log(`[Personaut] Loaded ${message.data.screenshots.length} screenshots`);
+          }
+        }
+      } else if (message.type === 'feedback-saved') {
+        // Handle feedback saved confirmation (Task 8.1)
+        console.log(`[Personaut] Feedback saved for project ${message.projectName}, iteration ${message.iterationNumber}`);
+        addBuildLog(`Feedback saved for iteration ${message.iterationNumber}`, 'success');
+      } else if (message.type === 'consolidated-feedback-saved') {
+        // Handle consolidated feedback saved confirmation (Task 8.1)
+        console.log(`[Personaut] Consolidated feedback saved for project ${message.projectName}, iteration ${message.iterationNumber}`);
+        addBuildLog(`Consolidated feedback saved for iteration ${message.iterationNumber}`, 'success');
+      } else if (message.type === 'screenshot-saved') {
+        // Handle screenshot saved confirmation (Task 8.1)
+        console.log(`[Personaut] Screenshot saved: ${message.pageName} for project ${message.projectName}, iteration ${message.iterationNumber}`);
+        addBuildLog(`Screenshot saved: ${message.pageName}`, 'success');
       }
     };
 

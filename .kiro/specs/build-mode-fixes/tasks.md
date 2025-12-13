@@ -136,7 +136,7 @@
     - _Requirements: 5.5_
 
 - [ ] 8. Update webview to use iteration data handlers
-  - [ ] 8.1 Add message handlers for iteration responses
+  - [x] 8.1 Add message handlers for iteration responses
     - Handle iteration-data-loaded, feedback-saved, consolidated-feedback-saved, screenshot-saved messages
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
   - [ ] 8.2 Update iteration state saving to use new handlers
