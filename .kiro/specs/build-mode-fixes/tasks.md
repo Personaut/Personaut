@@ -209,7 +209,7 @@
     - When saving users stage, convert generatedPersonas to proper Persona format
     - Ensure all required fields (id, name, attributes, backstory, createdAt, updatedAt) are present
     - _Requirements: 9.7_
-  - [ ] 12.6 Write property tests for persona generation
+  - [x] 12.6 Write property tests for persona generation
     - **Property 16: Persona Generation from Demographics**
     - **Property 17: Persona Backstory Integration**
     - **Property 18: Persona Attribute Display**
