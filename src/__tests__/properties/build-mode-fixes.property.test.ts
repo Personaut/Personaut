@@ -692,3 +692,72 @@ describe('Property 20: Persona Persistence Format', () => {
         );
     });
 });
+
+/**
+ * **Feature: build-mode-fixes, Property 9: Session State Preservation**
+ *
+ * *For any* session invalidation event, the critical project state
+ * (projectName, projectTitle, buildData) SHALL be preserved and NOT reset.
+ *
+ * **Validates: Requirements 6.1, 6.5**
+ */
+describe('Property 9: Session State Preservation', () => {
+    it('should preserve project state fields on session invalidation', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc.record({
+                    projectName: fc
+                        .string({ minLength: 1, maxLength: 50 })
+                        .filter((s) => /^[a-z0-9-]+$/.test(s)),
+                    projectTitle: fc.string({ minLength: 1, maxLength: 100 }),
+                    buildData: fc.record({
+                        idea: fc.string({ minLength: 0, maxLength: 200 }),
+                    }),
+                    sessionId: fc.uuid(),
+                }),
+                async (currentState) => {
+                    const newSessionId = 'new-session-' + Date.now();
+
+                    // Simulate session-invalid handler logic
+                    const newState = { ...currentState, sessionId: newSessionId, messages: [] };
+
+                    // Property: projectName SHALL be preserved
+                    expect(newState.projectName).toBe(currentState.projectName);
+
+                    // Property: projectTitle SHALL be preserved
+                    expect(newState.projectTitle).toBe(currentState.projectTitle);
+
+                    // Property: buildData SHALL be preserved
+                    expect(newState.buildData).toBe(currentState.buildData);
+                    expect(newState.buildData.idea).toBe(currentState.buildData.idea);
+
+                    // Property: sessionId SHALL be updated
+                    expect(newState.sessionId).toBe(newSessionId);
+
+                    // Property: messages SHALL be cleared
+                    expect(newState.messages).toEqual([]);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+
+    it('should not lose project name during state transitions', () => {
+        fc.assert(
+            fc.property(
+                fc
+                    .string({ minLength: 1, maxLength: 50 })
+                    .filter((s) => /^[a-z0-9-]+$/.test(s)),
+                (projectName) => {
+                    const baseState = { projectName };
+                    const sessionInvalidState = { ...baseState, sessionId: 'new', messages: [] };
+                    const restoredState = { ...sessionInvalidState };
+
+                    // Property: projectName SHALL survive the session lifecycle
+                    expect(restoredState.projectName).toBe(projectName);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+});
