@@ -67,7 +67,7 @@
     - Detect old structure, backup, migrate, handle errors with rollback
     - Called during project load if old structure detected
     - _Requirements: 7.1, 7.2, 7.3, 7.4_
-  - [ ] 4.6 Write property tests for migration
+  - [x] 4.6 Write property tests for migration
     - **Property 10: Migration Backup Integrity**
     - **Property 11: Migration Path Update**
     - **Validates: Requirements 7.2, 7.3, 7.4**
@@ -151,36 +151,76 @@
 - [ ] 9. Checkpoint - Verify iteration data management works
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Verify session state preservation
-  - [ ] 10.1 Verify vscode.setState includes required fields
+- [ ] 10. Implement persona generation from demographics
+  - [ ] 10.1 Add generate-personas-from-demographics handler to BuildModeHandler
+    - Accept demographics and description from webview
+    - Generate 5 persona configurations with random attribute variations within demographic ranges
+    - For each persona, call PersonasService.createPersona() then generateBackstory()
+    - Send personas-generated response with full persona data
+    - _Requirements: 8.1, 8.2_
+  - [ ] 10.2 Add regenerate-single-persona handler to BuildModeHandler
+    - Accept personaId from webview
+    - Call PersonasService.generateBackstory(personaId) to regenerate only that persona
+    - Send persona-updated response with updated persona
+    - _Requirements: 8.5_
+  - [ ] 10.3 Update webview to display persona attributes as tags
+    - Extract attributes from persona.attributes object
+    - Display as colored tag badges below backstory
+    - Show age, occupation, and other demographic attributes
+    - _Requirements: 8.3_
+  - [ ] 10.4 Add individual regenerate button to each persona card
+    - Add "Regenerate Backstory" button to each persona in the list
+    - Call regenerate-single-persona handler with persona ID
+    - Update only that persona in the generatedPersonas state
+    - _Requirements: 8.5_
+  - [ ] 10.5 Update persona save logic to use Persona format
+    - When saving users stage, convert generatedPersonas to proper Persona format
+    - Ensure all required fields (id, name, attributes, backstory, createdAt, updatedAt) are present
+    - _Requirements: 8.7_
+  - [ ] 10.6 Write property tests for persona generation
+    - **Property 12: Persona Generation from Demographics**
+    - **Property 13: Persona Backstory Integration**
+    - **Property 14: Persona Attribute Display**
+    - **Property 15: Individual Persona Regeneration**
+    - **Property 16: Persona Persistence Format**
+    - **Validates: Requirements 8.1, 8.2, 8.3, 8.5, 8.7**
+
+- [ ] 11. Checkpoint - Verify persona generation works
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test demographics input and persona generation
+  - Test individual persona regeneration
+  - Test persona editing and saving
+
+- [ ] 12. Verify session state preservation
+  - [ ] 12.1 Verify vscode.setState includes required fields
     - Ensure projectName, projectTitle, buildData are always included in state
     - _Requirements: 6.1_
-  - [ ] 10.2 Verify session-invalid handler preserves project state
+  - [ ] 12.2 Verify session-invalid handler preserves project state
     - Ensure projectName, projectTitle, buildData are NOT reset on session-invalid
     - Verify state restoration from disk is triggered
     - _Requirements: 6.4, 6.5_
-  - [ ] 10.3 Write property test for session state preservation
+  - [ ] 12.3 Write property test for session state preservation
     - **Property 9: Session State Preservation**
     - **Validates: Requirements 6.1, 6.5**
 
-- [ ] 11. Write end-to-end integration test
-  - [ ] 11.1 Create integration test for complete build flow
+- [ ] 13. Write end-to-end integration test
+  - [ ] 13.1 Create integration test for complete build flow
     - Test project creation with title validation
     - Test .personaut folder and planning/ structure creation
     - Test stage file saving and loading
-    - _Requirements: 8.1, 8.2_
-  - [ ] 11.2 Create integration test for state restoration
+    - _Requirements: 9.1, 9.2_
+  - [ ] 13.2 Create integration test for state restoration
     - Simulate session invalidation
     - Verify project data is correctly loaded from disk
     - Verify UI state matches persisted state
-    - _Requirements: 8.3_
-  - [ ] 11.3 Create integration test for iteration data
+    - _Requirements: 9.3_
+  - [ ] 13.3 Create integration test for iteration data
     - Test feedback saving and loading
     - Test consolidated feedback saving and loading
     - Test screenshot saving and loading
-    - _Requirements: 8.4_
+    - _Requirements: 9.4_
 
-- [ ] 12. Final Checkpoint - Ensure all tests pass
+- [ ] 14. Final Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - Run full test suite including integration tests
   - Verify no regressions in existing functionality

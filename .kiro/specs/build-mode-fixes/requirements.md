@@ -102,6 +102,20 @@ This document specifies the requirements for fixing critical bugs in the Build M
 
 ### Requirement 8
 
+**User Story:** As a user, I want to generate personas from demographics that integrate with the existing persona system, so that I get fully-featured personas with backstories and tags.
+
+#### Acceptance Criteria
+
+1. WHEN the user enters demographics and clicks generate THEN the system SHALL create 5 unique persona configurations with randomly selected demographic attributes
+2. WHEN persona configurations are created THEN the system SHALL use the PersonasService to generate backstories for each persona
+3. WHEN personas are generated THEN the system SHALL display name, age, occupation, backstory, and attribute tags for each persona
+4. WHEN the user edits a persona field THEN the system SHALL update that persona in the generated personas list
+5. WHEN the user clicks regenerate on an individual persona THEN the system SHALL regenerate only that persona's backstory using PersonasService
+6. WHEN the user clicks "Reset & Regenerate" THEN the system SHALL clear all generated personas and allow starting over
+7. WHEN the user saves generated personas THEN the system SHALL persist them to the users stage file in the proper Persona format
+
+### Requirement 9
+
 **User Story:** As a developer, I want an end-to-end integration test for the build flow, so that I can verify the complete user journey works correctly.
 
 #### Acceptance Criteria
