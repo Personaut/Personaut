@@ -280,15 +280,26 @@ describe('BuildModeHandler', () => {
       };
 
       mockInputValidator.validateInput.mockReturnValue({ valid: true });
+      mockBuildModeService.generateStageContent = jest.fn().mockResolvedValue('{"personas":[]}');
 
       await buildModeHandler.handle(message, mockWebview);
 
       expect(mockInputValidator.validateInput).toHaveBeenCalledWith('Generate user personas');
+      // First message is stream-update with generation-started
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'content-generation-started',
-        projectName: 'test-project',
+        type: 'stream-update',
         stage: 'users',
+        updateType: 'generation-started',
+        data: { projectName: 'test-project', stage: 'users' },
+        complete: false,
       });
+      // Should also call generateStageContent on the service
+      expect(mockBuildModeService.generateStageContent).toHaveBeenCalledWith(
+        'test-project',
+        'users',
+        'Generate user personas',
+        expect.any(Function)
+      );
     });
   });
 

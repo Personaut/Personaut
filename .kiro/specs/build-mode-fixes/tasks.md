@@ -151,76 +151,492 @@
 - [ ] 9. Checkpoint - Verify iteration data management works
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 10. Implement persona generation from demographics
-  - [ ] 10.1 Add generate-personas-from-demographics handler to BuildModeHandler
+- [ ] 10. Implement AI content generation for build stages
+  - [x] 10.1 Implement handleGenerateContent in BuildModeHandler
+    - Create agent using AgentManager with appropriate system prompt
+    - Send prompt to agent and handle streaming responses
+    - Use ContentStreamer to parse and buffer updates
+    - Send stream-update messages to webview
+    - Handle completion and save to stage file
+    - _Requirements: 8.1, 8.2, 8.3_
+  - [ ] 10.2 Add error handling for content generation
+    - Catch generation errors and save partial content
+    - Mark stage file with error field
+    - Send error notification to webview
+    - _Requirements: 8.4_
+  - [ ] 10.3 Implement retry from partial content
+    - Load partial content from stage file
+    - Build resume prompt with context
+    - Continue generation from where it left off
+    - _Requirements: 8.5_
+  - [ ] 10.4 Write property tests for content generation
+    - **Property 12: AI Content Generation Invocation**
+    - **Property 13: Content Streaming Updates**
+    - **Property 14: Content Generation Completion**
+    - **Property 15: Content Generation Error Handling**
+    - **Validates: Requirements 8.1, 8.2, 8.3, 8.4**
+
+- [ ] 11. Checkpoint - Verify AI content generation works
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test persona generation from demographics
+  - Test feature generation
+  - Test story generation
+  - Test error handling and retry
+
+- [ ] 12. Implement persona generation from demographics
+  - [ ] 12.1 Add generate-personas-from-demographics handler to BuildModeHandler
     - Accept demographics and description from webview
     - Generate 5 persona configurations with random attribute variations within demographic ranges
     - For each persona, call PersonasService.createPersona() then generateBackstory()
     - Send personas-generated response with full persona data
-    - _Requirements: 8.1, 8.2_
-  - [ ] 10.2 Add regenerate-single-persona handler to BuildModeHandler
+    - _Requirements: 9.1, 9.2_
+  - [ ] 12.2 Add regenerate-single-persona handler to BuildModeHandler
     - Accept personaId from webview
     - Call PersonasService.generateBackstory(personaId) to regenerate only that persona
     - Send persona-updated response with updated persona
-    - _Requirements: 8.5_
-  - [ ] 10.3 Update webview to display persona attributes as tags
+    - _Requirements: 9.5_
+  - [ ] 12.3 Update webview to display persona attributes as tags
     - Extract attributes from persona.attributes object
     - Display as colored tag badges below backstory
     - Show age, occupation, and other demographic attributes
-    - _Requirements: 8.3_
-  - [ ] 10.4 Add individual regenerate button to each persona card
+    - _Requirements: 9.3_
+  - [ ] 12.4 Add individual regenerate button to each persona card
     - Add "Regenerate Backstory" button to each persona in the list
     - Call regenerate-single-persona handler with persona ID
     - Update only that persona in the generatedPersonas state
-    - _Requirements: 8.5_
-  - [ ] 10.5 Update persona save logic to use Persona format
+    - _Requirements: 9.5_
+  - [ ] 12.5 Update persona save logic to use Persona format
     - When saving users stage, convert generatedPersonas to proper Persona format
     - Ensure all required fields (id, name, attributes, backstory, createdAt, updatedAt) are present
-    - _Requirements: 8.7_
-  - [ ] 10.6 Write property tests for persona generation
-    - **Property 12: Persona Generation from Demographics**
-    - **Property 13: Persona Backstory Integration**
-    - **Property 14: Persona Attribute Display**
-    - **Property 15: Individual Persona Regeneration**
-    - **Property 16: Persona Persistence Format**
-    - **Validates: Requirements 8.1, 8.2, 8.3, 8.5, 8.7**
+    - _Requirements: 9.7_
+  - [ ] 12.6 Write property tests for persona generation
+    - **Property 16: Persona Generation from Demographics**
+    - **Property 17: Persona Backstory Integration**
+    - **Property 18: Persona Attribute Display**
+    - **Property 19: Individual Persona Regeneration**
+    - **Property 20: Persona Persistence Format**
+    - **Validates: Requirements 9.1, 9.2, 9.3, 9.5, 9.7**
 
-- [ ] 11. Checkpoint - Verify persona generation works
+- [ ] 13. Checkpoint - Verify persona generation works
   - Ensure all tests pass, ask the user if questions arise.
   - Test demographics input and persona generation
   - Test individual persona regeneration
   - Test persona editing and saving
 
-- [ ] 12. Verify session state preservation
-  - [ ] 12.1 Verify vscode.setState includes required fields
+- [ ] 14. Implement feature generation from user interviews
+  - [ ] 14.1 Add generate-features-from-interviews handler to BuildModeHandler
+    - Accept personas and idea description from webview
+    - For each persona, create AI agent with persona context (backstory, attributes)
+    - Survey each persona agent about desired features and ratings
+    - Collect all survey responses with persona attribution
+    - Send survey-progress-update messages to webview
+    - _Requirements: 10.1, 10.2_
+  - [ ] 14.2 Implement consolidator agent for feature analysis
+    - Create consolidator agent with all survey data
+    - Prompt consolidator to identify common themes
+    - Calculate average ratings and determine priority
+    - Generate feature descriptions with persona associations
+    - Return consolidated features with survey metadata
+    - _Requirements: 10.3, 10.4_
+  - [ ] 14.3 Update webview to display generated features with survey data
+    - Show features in editable list with all fields
+    - Display rating, frequency, priority, and associated personas
+    - Allow editing of name, description, and all metadata fields
+    - Show survey data in expandable section
+    - _Requirements: 10.5_
+  - [ ] 14.4 Add regenerate-single-feature handler to BuildModeHandler
+    - Accept featureId and existing survey data from webview
+    - Invoke consolidator agent with survey data for that feature
+    - Regenerate only the specified feature
+    - Send feature-updated response with updated feature
+    - _Requirements: 10.6_
+  - [ ] 14.5 Update feature save logic to include survey data
+    - When saving features stage, include full survey data
+    - Ensure persona responses and consolidation reasoning are persisted
+    - Save in ConsolidatedFeature format with surveyData field
+    - _Requirements: 10.7_
+  - [ ] 14.6 Write property tests for feature generation
+    - **Property 21: Feature Survey Persona Agent Creation**
+    - **Property 22: Feature Survey Completion**
+    - **Property 23: Feature Consolidation**
+    - **Property 24: Feature Display Editability**
+    - **Property 25: Individual Feature Regeneration**
+    - **Property 26: Feature Persistence with Survey Data**
+    - **Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7**
+
+- [ ] 15. Checkpoint - Verify feature generation from interviews works
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test persona agent creation and surveying
+  - Test consolidator agent analysis
+  - Test feature editing and individual regeneration
+  - Test feature saving with survey data
+
+- [ ] 16. Implement VoltAgent integration
+  - [ ] 16.1 Add VoltAgent as a dependency
+    - Install VoltAgent package
+    - Configure VoltAgent in the extension
+    - Set up workflow state persistence
+    - _Requirements: 10.8, 11.2_
+  - [ ] 16.2 Create VoltAgent service wrapper
+    - Implement VoltAgentService class
+    - Add methods for workflow creation and execution
+    - Add progress tracking and state management
+    - Handle workflow pause/resume
+    - _Requirements: 10.8, 11.2_
+  - [ ] 16.3 Integrate VoltAgent with BuildModeHandler
+    - Update handlers to use VoltAgent for multi-agent workflows
+    - Replace manual agent coordination with VoltAgent workflows
+    - Add workflow state tracking
+    - _Requirements: 10.8, 11.2_
+
+- [ ] 17. Implement Web Search MCP server
+  - [ ] 17.1 Configure Web Search MCP server
+    - Add Brave Search MCP server to mcp.json
+    - Configure API key management
+    - Test MCP server connectivity
+    - _Requirements: 11.3_
+  - [ ] 17.2 Add web search logging
+    - Log all search queries with agent attribution
+    - Log search results with timestamps
+    - Store search logs in project directory
+    - _Requirements: 11.8_
+  - [ ] 17.3 Integrate Web Search with VoltAgent workflows
+    - Configure agents to access web-search tool
+    - Test tool invocation from agents
+    - Handle search errors gracefully
+    - _Requirements: 11.3_
+
+- [ ] 18. Implement research workflow with VoltAgent
+  - [ ] 18.1 Create research workflow configuration
+    - Define four research agents (competitive, market, user, technical)
+    - Define synthesis agent
+    - Configure parallel and sequential steps
+    - Set up progress callbacks
+    - _Requirements: 11.2, 11.4_
+  - [ ] 18.2 Implement research agent prompts
+    - Write system prompts for competitive analysis agent
+    - Write system prompts for market research agent
+    - Write system prompts for user research agent
+    - Write system prompts for technical research agent
+    - Write system prompt for synthesis agent
+    - _Requirements: 11.4, 11.5_
+  - [ ] 18.3 Add start-research-workflow handler to BuildModeHandler
+    - Accept idea description from webview
+    - Create VoltAgent research workflow
+    - Execute workflow with progress updates
+    - Send research-progress updates to webview
+    - Send research-complete with report when done
+    - _Requirements: 11.1, 11.2_
+  - [ ] 18.4 Implement research report generation
+    - Collect findings from all research agents
+    - Invoke synthesis agent to consolidate
+    - Generate structured ResearchReport object
+    - Include all sources with links
+    - _Requirements: 11.5, 11.6_
+  - [ ] 18.5 Add research report persistence
+    - Save research report to .personaut/{project-name}/research/
+    - Save sources.json with all web sources
+    - Include timestamps and metadata
+    - _Requirements: 11.7_
+  - [ ] 18.6 Update webview to display research report
+    - Add "Research Idea" button to idea stage
+    - Display research progress during workflow execution
+    - Show research report with collapsible sections
+    - Display sources with clickable links
+    - Allow export to markdown
+    - _Requirements: 11.1, 11.6, 11.8_
+  - [ ] 18.7 Write property tests for research workflow
+    - **Property 27: Research Workflow Creation**
+    - **Property 28: Research Agent Web Access**
+    - **Property 29: Research Data Collection**
+    - **Property 30: Research Synthesis**
+    - **Property 31: Research Report Structure**
+    - **Property 32: Research Persistence**
+    - **Property 33: Research Source Transparency**
+    - **Validates: Requirements 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8**
+
+- [ ] 19. Checkpoint - Verify research workflow works
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test VoltAgent workflow creation and execution
+  - Test all four research agents with web search
+  - Test synthesis agent consolidation
+  - Test research report display and persistence
+  - Test source transparency and links
+
+- [ ] 20. Implement standardized team configuration
+  - [ ] 20.1 Update team stage to use fixed team
+    - Set team as UX, Developer, User Feedback (non-editable)
+    - Remove UI controls for adding/removing team members
+    - Keep team data structure in backend for future extensibility
+    - _Requirements: 12.1_
+  - [ ] 20.2 Update team stage UI
+    - Display fixed team members with role descriptions
+    - Show workflow diagram: UX → Developer → User Feedback
+    - Remove add/remove buttons
+    - Add informational text about standardized workflow
+    - _Requirements: 12.1_
+
+- [ ] 21. Implement building workflow with VoltAgent
+  - [ ] 21.1 Create building workflow configuration
+    - Define UX agent with design requirements task
+    - Define Developer agent with implementation task
+    - Define User Feedback agents (one per persona)
+    - Configure serial execution: UX → Dev → Feedback (parallel)
+    - Set up workflow state persistence
+    - _Requirements: 12.2_
+  - [ ] 21.2 Implement UX agent
+    - Write system prompt for UX design requirements
+    - Configure web-search tool access
+    - Handle previous feedback input for iterations
+    - Generate design requirements document
+    - _Requirements: 12.3_
+  - [ ] 21.3 Implement Developer agent
+    - Write system prompt for feature implementation
+    - Configure file-write, file-read, execute-command, web-search tools
+    - Implement code generation based on design requirements
+    - _Requirements: 12.4_
+  - [ ] 21.4 Implement dev server management
+    - Create DevServerManager class
+    - Add startServer method with framework detection
+    - Add stopServer method
+    - Handle port allocation and conflicts
+    - Wait for server ready before proceeding
+    - _Requirements: 12.4_
+  - [ ] 21.5 Implement screenshot capture
+    - Create ScreenshotService class
+    - Use puppeteer/playwright for screenshot capture
+    - Configure viewport size and full-page options
+    - Save screenshot to iteration directory
+    - Return screenshot URL/path
+    - _Requirements: 12.4, 12.5_
+  - [ ] 21.6 Implement User Feedback agents
+    - Write system prompt per persona (using persona context)
+    - Configure parallel execution in VoltAgent workflow
+    - Provide screenshot and design requirements as input
+    - Collect structured feedback with ratings
+    - _Requirements: 12.6_
+  - [ ] 21.7 Implement feedback aggregation
+    - Create aggregateFeedback function
+    - Calculate average ratings
+    - Find common themes in praises and issues
+    - Prioritize suggestions by frequency
+    - Generate feedback summary
+    - _Requirements: 12.7_
+  - [ ] 21.8 Add start-building-workflow handler to BuildModeHandler
+    - Accept user story and iteration number from webview
+    - Create VoltAgent building workflow
+    - Execute workflow with progress updates
+    - Handle dev server startup and screenshot capture
+    - Send workflow-progress updates to webview
+    - Send iteration-complete when done
+    - _Requirements: 12.2, 12.8_
+  - [ ] 21.9 Implement iteration data persistence
+    - Save design requirements to iteration directory
+    - Save implementation summary
+    - Save screenshot
+    - Save individual feedback
+    - Save aggregated feedback
+    - Save files-changed list
+    - _Requirements: 12.7_
+  - [ ] 21.10 Update webview for building workflow
+    - Add "Start Building" button
+    - Display workflow progress (UX → Dev → Feedback)
+    - Show live updates as agents work
+    - Display screenshot preview
+    - Show aggregated feedback with ratings
+    - Show individual persona feedback (expandable)
+    - Add "Next Iteration" and "Complete Feature" buttons
+    - Add "Pause Workflow" button
+    - _Requirements: 12.2, 12.5, 12.7_
+  - [ ] 21.11 Implement workflow pause and resume
+    - Save workflow state to disk on pause
+    - Load workflow state on resume
+    - Restore agent context and progress
+    - Continue from last completed step
+    - _Requirements: 12.9_
+  - [ ] 21.12 Write property tests for building workflow
+    - **Property 34: Standard Team Configuration**
+    - **Property 35: Building Workflow Serial Execution**
+    - **Property 36: UX Agent Requirements Generation**
+    - **Property 37: Developer Agent Implementation and Screenshot**
+    - **Property 38: Screenshot Distribution**
+    - **Property 39: Parallel User Feedback Execution**
+    - **Property 40: Feedback Aggregation**
+    - **Property 41: Iteration Continuation**
+    - **Property 42: Workflow State Persistence**
+    - **Validates: Requirements 12.1, 12.2, 12.3, 12.4, 12.5, 12.6, 12.7, 12.8, 12.9**
+
+- [ ] 22. Checkpoint - Verify building workflow works
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test VoltAgent building workflow creation
+  - Test UX agent design requirements generation
+  - Test Developer agent implementation and dev server
+  - Test screenshot capture
+  - Test parallel User Feedback agents
+  - Test feedback aggregation
+  - Test iteration continuation
+  - Test workflow pause and resume
+
+- [ ] 23. Implement AI-generated user stories in Stories stage
+  - [ ] 23.1 Create UX agent for user story generation
+    - Write system prompt for generating user stories from features and personas
+    - Configure web-search tool access for story writing best practices
+    - Generate stories in proper format (As a X, I want Y, so that Z)
+    - Include acceptance criteria and clarifying questions
+    - _Requirements: 13.1, 13.2, 13.3_
+  - [ ] 23.2 Add generate-user-stories handler to BuildModeHandler
+    - Accept features and personas from webview
+    - Invoke UX agent to generate user stories
+    - Parse and validate generated stories
+    - Send user-stories-generated response
+    - _Requirements: 13.1_
+  - [ ] 23.3 Update webview for stories stage
+    - Display generated stories in expandable cards
+    - Make all fields editable (title, description, criteria, questions)
+    - Add clarifying question answer inputs
+    - Add "Regenerate Story" button per story
+    - Add "Add Story Manually" button
+    - Add "Regenerate All Stories" button
+    - _Requirements: 13.3, 13.4_
+  - [ ] 23.4 Add regenerate-single-story handler
+    - Accept storyId and context from webview
+    - Invoke UX agent to regenerate only that story
+    - Send story-updated response
+    - _Requirements: 13.5_
+  - [ ] 23.5 Update story save logic
+    - Save user stories with all fields including clarifying question answers
+    - Persist to stories stage file
+    - _Requirements: 13.6, 13.7_
+  - [ ] 23.6 Write property tests for user story generation
+    - **Property 43: User Story Generation from Features**
+    - **Property 44: User Story Structure**
+    - **Property 45: User Story Editability**
+    - **Property 46: Individual Story Regeneration**
+    - **Property 47: User Story Persistence**
+    - **Validates: Requirements 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7**
+
+- [ ] 24. Checkpoint - Verify user story generation works
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test UX agent story generation from features
+  - Test story editing and clarifying questions
+  - Test individual story regeneration
+  - Test story persistence
+
+- [ ] 25. Implement design generation with user flows and pages
+  - [ ] 25.1 Create UX agent for design generation
+    - Write system prompt for generating user flows and pages from user stories
+    - Configure web-search tool access for design patterns
+    - Generate user flows showing page navigation
+    - Generate detailed page specifications
+    - _Requirements: 14.1, 14.2, 14.3_
+  - [ ] 25.2 Add generate-design handler to BuildModeHandler
+    - Accept user stories and framework from webview
+    - Invoke UX agent to generate design
+    - Parse user flows and pages
+    - Send design-generated response
+    - _Requirements: 14.1_
+  - [ ] 25.3 Update webview for design stage
+    - Add "EXPERIENCE-FIRST DESIGN" header with info box
+    - Add framework selection dropdown (React, Vue, Next.js, HTML, Flutter)
+    - Display "USER FLOWS" section with "Generate Flows" button
+    - Show user flows as cards with page navigation diagrams
+    - Display "KEY SCREENS / PAGES" section
+    - Show pages as expandable cards with purpose, UI elements, user actions
+    - Make all page fields editable
+    - Add "+ Add" buttons for UI elements and user actions
+    - Add "Mock Data First" info box at bottom
+    - _Requirements: 14.4, 14.5, 14.6, 14.9_
+  - [ ] 25.4 Implement user flow visualization
+    - Create flow diagram component showing page navigation
+    - Display pages in sequence with arrows
+    - Make flows editable (add/remove pages)
+    - _Requirements: 14.2, 14.5_
+  - [ ] 25.5 Add regenerate-flows handler
+    - Accept current user stories from webview
+    - Invoke UX agent to regenerate flows
+    - Send flows-updated response
+    - _Requirements: 14.7_
+  - [ ] 25.6 Update design save logic
+    - Save user flows with page sequences
+    - Save pages with purpose, UI elements, user actions
+    - Save selected framework
+    - Persist to design stage file
+    - _Requirements: 14.8, 14.9_
+  - [ ] 25.7 Write property tests for design generation
+    - **Property 48: Design Generation from User Stories**
+    - **Property 49: User Flow Creation**
+    - **Property 50: Page Design Specification**
+    - **Property 51: Design Display Completeness**
+    - **Property 52: Page Editability**
+    - **Property 53: User Flow Regeneration**
+    - **Property 54: Design Persistence with Framework**
+    - **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8, 14.9**
+
+- [ ] 26. Checkpoint - Verify design generation works
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test UX agent design generation from user stories
+  - Test user flow visualization
+  - Test page editing (purpose, UI elements, user actions)
+  - Test flow regeneration
+  - Test design persistence with framework
+
+- [ ] 27. Verify session state preservation
+  - [ ] 27.1 Verify vscode.setState includes required fields
     - Ensure projectName, projectTitle, buildData are always included in state
     - _Requirements: 6.1_
-  - [ ] 12.2 Verify session-invalid handler preserves project state
+  - [ ] 27.2 Verify session-invalid handler preserves project state
     - Ensure projectName, projectTitle, buildData are NOT reset on session-invalid
     - Verify state restoration from disk is triggered
     - _Requirements: 6.4, 6.5_
-  - [ ] 12.3 Write property test for session state preservation
+  - [ ] 27.3 Write property test for session state preservation
     - **Property 9: Session State Preservation**
     - **Validates: Requirements 6.1, 6.5**
 
-- [ ] 13. Write end-to-end integration test
-  - [ ] 13.1 Create integration test for complete build flow
+- [ ] 28. Write end-to-end integration test
+  - [ ] 28.1 Create integration test for complete build flow
     - Test project creation with title validation
     - Test .personaut folder and planning/ structure creation
     - Test stage file saving and loading
-    - _Requirements: 9.1, 9.2_
-  - [ ] 13.2 Create integration test for state restoration
+    - _Requirements: 15.1, 15.2_
+  - [ ] 28.2 Create integration test for state restoration
     - Simulate session invalidation
     - Verify project data is correctly loaded from disk
     - Verify UI state matches persisted state
-    - _Requirements: 9.3_
-  - [ ] 13.3 Create integration test for iteration data
+    - _Requirements: 15.3_
+  - [ ] 28.3 Create integration test for iteration data
     - Test feedback saving and loading
     - Test consolidated feedback saving and loading
     - Test screenshot saving and loading
-    - _Requirements: 9.4_
+    - _Requirements: 15.4_
+  - [ ] 28.4 Create integration test for feature generation
+    - Test persona agent creation and surveying
+    - Test consolidator agent analysis
+    - Test feature data persistence with survey metadata
+    - _Requirements: 15.5_
+  - [ ] 28.5 Create integration test for research workflow
+    - Test VoltAgent workflow creation
+    - Test research agents with web search
+    - Test synthesis and report generation
+    - Test research persistence
+    - _Requirements: 15.6_
+  - [ ] 28.6 Create integration test for building workflow
+    - Test VoltAgent building workflow coordination
+    - Test UX → Developer → User Feedback flow
+    - Test dev server startup and screenshot capture
+    - Test feedback aggregation and iteration
+    - _Requirements: 15.7_
+  - [ ] 28.7 Create integration test for stories generation
+    - Test UX agent user story generation from features
+    - Test story editing and clarifying questions
+    - Test story persistence
+    - _Requirements: 15.8_
+  - [ ] 28.8 Create integration test for design generation
+    - Test UX agent design generation from user stories
+    - Test user flow and page generation
+    - Test design persistence with framework
+    - _Requirements: 15.9_
 
-- [ ] 14. Final Checkpoint - Ensure all tests pass
+- [ ] 29. Final Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
   - Run full test suite including integration tests
   - Verify no regressions in existing functionality

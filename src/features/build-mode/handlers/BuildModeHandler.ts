@@ -224,6 +224,8 @@ export class BuildModeHandler implements IFeatureHandler {
 
   /**
    * Handle generate content streaming request.
+   * Uses BuildModeService.generateStageContent to invoke AI agent.
+   * Validates: Requirements 8.1, 8.2, 8.3, 8.4
    */
   private async handleGenerateContent(message: WebviewMessage, webview: any): Promise<void> {
     if (!message.projectName || !message.stage || !message.prompt) {
@@ -240,16 +242,105 @@ export class BuildModeHandler implements IFeatureHandler {
       throw new Error(validation.reason || 'Invalid prompt');
     }
 
-    // This would integrate with an AI provider to generate content
-    // For now, just acknowledge the request
+    // Notify webview that generation has started
     webview.postMessage({
-      type: 'content-generation-started',
-      projectName: message.projectName,
+      type: 'stream-update',
       stage: message.stage,
+      updateType: 'generation-started',
+      data: { projectName: message.projectName, stage: message.stage },
+      complete: false,
     });
 
-    // The actual streaming would be handled by the ContentStreamer
-    // in coordination with an AI provider
+    try {
+      // Track generation progress
+      let lastProgressUpdate = Date.now();
+
+      // Generate content using BuildModeService
+      const generatedContent = await this.buildModeService.generateStageContent(
+        message.projectName,
+        message.stage,
+        message.prompt,
+        (chunk: string) => {
+          // Send progress updates at most every 100ms to avoid flooding
+          const now = Date.now();
+          if (now - lastProgressUpdate >= 100) {
+            lastProgressUpdate = now;
+            webview.postMessage({
+              type: 'stream-update',
+              stage: message.stage,
+              updateType: 'content',
+              data: { content: chunk },
+              complete: false,
+            });
+          }
+        }
+      );
+
+      // Try to parse as JSON if the stage expects structured data
+      let parsedData = generatedContent;
+      if (message.stage !== 'idea') {
+        try {
+          // Extract JSON from code blocks if present
+          const jsonMatch = generatedContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          if (jsonMatch) {
+            parsedData = JSON.parse(jsonMatch[1]);
+          } else {
+            parsedData = JSON.parse(generatedContent);
+          }
+        } catch {
+          // Keep as string if not valid JSON
+          parsedData = generatedContent;
+        }
+      }
+
+      // Save the generated content to the stage file
+      await this.buildModeService.saveStage(
+        message.projectName,
+        message.stage,
+        parsedData,
+        false  // Not completed yet - user may want to edit
+      );
+
+      // Notify webview of successful completion
+      webview.postMessage({
+        type: 'stream-update',
+        stage: message.stage,
+        updateType: 'content',
+        data: parsedData,
+        complete: true,
+      });
+
+      console.log(`[BuildModeHandler] Content generation completed for stage ${message.stage}`);
+    } catch (error: any) {
+      // Log the error
+      console.error(`[BuildModeHandler] Content generation failed:`, error);
+
+      // Notify webview of error
+      webview.postMessage({
+        type: 'stream-update',
+        stage: message.stage,
+        updateType: 'error',
+        data: null,
+        complete: true,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+
+      // Also save partial content with error marker if available
+      try {
+        await this.buildModeService.saveStage(
+          message.projectName,
+          message.stage,
+          {
+            error: true,
+            errorMessage: this.errorSanitizer.sanitize(error).userMessage,
+            timestamp: Date.now(),
+          },
+          false
+        );
+      } catch (saveError) {
+        console.error(`[BuildModeHandler] Failed to save error state:`, saveError);
+      }
+    }
   }
 
   /**
