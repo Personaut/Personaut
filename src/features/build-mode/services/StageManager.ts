@@ -808,4 +808,299 @@ export class StageManager {
       return [];
     }
   }
+
+  // ==================== Migration Methods (Task 4) ====================
+
+  /**
+   * Detect if a project uses the old file structure.
+   * Checks for `{projectName}.json` or `{stage}.stage.json` in project root.
+   * Validates: Requirements 7.1
+   */
+  detectOldStructure(projectName: string): boolean {
+    const projectDir = this.getProjectDir(projectName);
+    if (!fs.existsSync(projectDir)) {
+      return false;
+    }
+
+    // Check for old-style idea file
+    const oldIdeaPath = path.join(projectDir, `${projectName}.json`);
+    if (fs.existsSync(oldIdeaPath)) {
+      return true;
+    }
+
+    // Check for old-style stage files
+    for (const stage of STAGE_ORDER) {
+      if (stage === 'idea') continue; // Already checked above
+      const oldStagePath = path.join(projectDir, `${stage}.stage.json`);
+      if (fs.existsSync(oldStagePath)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Create a timestamped backup of existing stage files.
+   * Validates: Requirements 7.2
+   */
+  async createMigrationBackup(projectName: string): Promise<string> {
+    const projectDir = this.getProjectDir(projectName);
+    const timestamp = Date.now();
+    const backupDir = path.join(projectDir, `.backup-${timestamp}`);
+
+    await fs.promises.mkdir(backupDir, { recursive: true });
+
+    // Copy old-style idea file
+    const oldIdeaPath = path.join(projectDir, `${projectName}.json`);
+    if (fs.existsSync(oldIdeaPath)) {
+      await fs.promises.copyFile(oldIdeaPath, path.join(backupDir, `${projectName}.json`));
+    }
+
+    // Copy old-style stage files
+    for (const stage of STAGE_ORDER) {
+      if (stage === 'idea') continue;
+      const oldStagePath = path.join(projectDir, `${stage}.stage.json`);
+      if (fs.existsSync(oldStagePath)) {
+        await fs.promises.copyFile(oldStagePath, path.join(backupDir, `${stage}.stage.json`));
+      }
+    }
+
+    console.log(`[StageManager] Created migration backup at: ${backupDir}`);
+    return backupDir;
+  }
+
+  /**
+   * Migrate project files to new structure.
+   * Validates: Requirements 7.1, 7.4
+   */
+  async migrateProjectStructure(projectName: string): Promise<void> {
+    const projectDir = this.getProjectDir(projectName);
+    const planningDir = this.getPlanningDir(projectName);
+
+    // Create planning directory
+    await fs.promises.mkdir(planningDir, { recursive: true });
+
+    // Migrate old-style idea file
+    const oldIdeaPath = path.join(projectDir, `${projectName}.json`);
+    const newIdeaPath = this.getStageFilePath(projectName, 'idea');
+    if (fs.existsSync(oldIdeaPath)) {
+      await fs.promises.copyFile(oldIdeaPath, newIdeaPath);
+      await fs.promises.unlink(oldIdeaPath);
+      console.log(`[StageManager] Migrated: ${oldIdeaPath} -> ${newIdeaPath}`);
+    }
+
+    // Migrate old-style stage files
+    for (const stage of STAGE_ORDER) {
+      if (stage === 'idea') continue;
+      const oldStagePath = path.join(projectDir, `${stage}.stage.json`);
+      const newStagePath = this.getStageFilePath(projectName, stage);
+      if (fs.existsSync(oldStagePath)) {
+        await fs.promises.copyFile(oldStagePath, newStagePath);
+        await fs.promises.unlink(oldStagePath);
+        console.log(`[StageManager] Migrated: ${oldStagePath} -> ${newStagePath}`);
+      }
+    }
+
+    // Update build-state.json paths
+    const state = await this.readBuildState(projectName);
+    if (state && state.stages) {
+      for (const stage of Object.keys(state.stages)) {
+        state.stages[stage].path = `planning/${stage}.json`;
+      }
+      await this.writeBuildState(projectName, state);
+    }
+
+    console.log(`[StageManager] Migration completed for project: ${projectName}`);
+  }
+
+  /**
+   * Restore files from backup directory on migration failure.
+   * Validates: Requirements 7.3
+   */
+  async restoreFromBackup(projectName: string, backupDir: string): Promise<void> {
+    const projectDir = this.getProjectDir(projectName);
+
+    try {
+      const backupFiles = await fs.promises.readdir(backupDir);
+
+      for (const file of backupFiles) {
+        const backupPath = path.join(backupDir, file);
+        const restorePath = path.join(projectDir, file);
+        await fs.promises.copyFile(backupPath, restorePath);
+        console.log(`[StageManager] Restored: ${backupPath} -> ${restorePath}`);
+      }
+
+      console.log(`[StageManager] Restore from backup completed for project: ${projectName}`);
+    } catch (error) {
+      console.error(`[StageManager] Failed to restore from backup: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Orchestrator method: detect, backup, migrate, handle errors with rollback.
+   * Called during project load if old structure detected.
+   * Validates: Requirements 7.1, 7.2, 7.3, 7.4
+   */
+  async migrateIfNeeded(projectName: string): Promise<boolean> {
+    if (!this.detectOldStructure(projectName)) {
+      return false; // No migration needed
+    }
+
+    console.log(`[StageManager] Old file structure detected for project: ${projectName}. Starting migration...`);
+
+    let backupDir: string | null = null;
+
+    try {
+      // Create backup
+      backupDir = await this.createMigrationBackup(projectName);
+
+      // Perform migration
+      await this.migrateProjectStructure(projectName);
+
+      return true;
+    } catch (error) {
+      console.error(`[StageManager] Migration failed for project ${projectName}:`, error);
+
+      // Attempt rollback if backup was created
+      if (backupDir) {
+        try {
+          await this.restoreFromBackup(projectName, backupDir);
+          console.log(`[StageManager] Rollback successful for project: ${projectName}`);
+        } catch (restoreError) {
+          console.error(`[StageManager] Rollback failed:`, restoreError);
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  // ==================== Iteration Data Methods (Task 6) ====================
+
+  /**
+   * Save feedback for an iteration.
+   * Validates: Requirements 5.2
+   */
+  async saveIterationFeedback(
+    projectName: string,
+    iterationNumber: number,
+    feedback: any[]
+  ): Promise<void> {
+    const iterationDir = this.getIterationDir(projectName, iterationNumber);
+    const feedbackPath = this.getFeedbackPath(projectName, iterationNumber);
+
+    // Create iteration directory if not exists
+    await fs.promises.mkdir(iterationDir, { recursive: true });
+
+    const content = JSON.stringify(feedback, null, 2);
+    await fs.promises.writeFile(feedbackPath, content, 'utf-8');
+
+    console.log(`[StageManager] Saved feedback for iteration ${iterationNumber}: ${feedbackPath}`);
+  }
+
+  /**
+   * Save consolidated feedback for an iteration.
+   * Validates: Requirements 5.3
+   */
+  async saveConsolidatedFeedback(
+    projectName: string,
+    iterationNumber: number,
+    markdown: string
+  ): Promise<void> {
+    const iterationDir = this.getIterationDir(projectName, iterationNumber);
+    const consolidatedPath = this.getConsolidatedFeedbackPath(projectName, iterationNumber);
+
+    // Create iteration directory if not exists
+    await fs.promises.mkdir(iterationDir, { recursive: true });
+
+    await fs.promises.writeFile(consolidatedPath, markdown, 'utf-8');
+
+    console.log(`[StageManager] Saved consolidated feedback for iteration ${iterationNumber}: ${consolidatedPath}`);
+  }
+
+  /**
+   * Save a screenshot for an iteration.
+   * Validates: Requirements 5.4
+   */
+  async saveScreenshot(
+    projectName: string,
+    iterationNumber: number,
+    pageName: string,
+    data: Buffer
+  ): Promise<string> {
+    const iterationDir = this.getIterationDir(projectName, iterationNumber);
+    const screenshotPath = this.getScreenshotPath(projectName, iterationNumber, pageName);
+
+    // Create iteration directory if not exists
+    await fs.promises.mkdir(iterationDir, { recursive: true });
+
+    await fs.promises.writeFile(screenshotPath, data);
+
+    console.log(`[StageManager] Saved screenshot for iteration ${iterationNumber}: ${screenshotPath}`);
+    return screenshotPath;
+  }
+
+  /**
+   * Load iteration data including feedback, consolidated feedback, and screenshots.
+   * Validates: Requirements 5.5
+   */
+  async loadIterationData(
+    projectName: string,
+    iterationNumber: number
+  ): Promise<{
+    feedback: any[] | null;
+    consolidatedFeedback: string | null;
+    screenshots: string[];
+  } | null> {
+    const iterationDir = this.getIterationDir(projectName, iterationNumber);
+
+    if (!fs.existsSync(iterationDir)) {
+      return null;
+    }
+
+    let feedback: any[] | null = null;
+    let consolidatedFeedback: string | null = null;
+    const screenshots: string[] = [];
+
+    // Read feedback.json
+    const feedbackPath = this.getFeedbackPath(projectName, iterationNumber);
+    if (fs.existsSync(feedbackPath)) {
+      try {
+        const content = await fs.promises.readFile(feedbackPath, 'utf-8');
+        feedback = JSON.parse(content);
+      } catch (error) {
+        console.error(`[StageManager] Error reading feedback: ${error}`);
+      }
+    }
+
+    // Read consolidated-feedback.md
+    const consolidatedPath = this.getConsolidatedFeedbackPath(projectName, iterationNumber);
+    if (fs.existsSync(consolidatedPath)) {
+      try {
+        consolidatedFeedback = await fs.promises.readFile(consolidatedPath, 'utf-8');
+      } catch (error) {
+        console.error(`[StageManager] Error reading consolidated feedback: ${error}`);
+      }
+    }
+
+    // List screenshots
+    try {
+      const files = await fs.promises.readdir(iterationDir);
+      for (const file of files) {
+        if (file.endsWith('.png')) {
+          screenshots.push(path.join(iterationDir, file));
+        }
+      }
+    } catch (error) {
+      console.error(`[StageManager] Error listing screenshots: ${error}`);
+    }
+
+    return {
+      feedback,
+      consolidatedFeedback,
+      screenshots,
+    };
+  }
 }
