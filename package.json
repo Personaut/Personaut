@@ -8,10 +8,10 @@
   "icon": "media/assets/personaut-logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/personaut/personaut-extension"
+    "url": "https://github.com/personaut/personaut"
   },
   "bugs": {
-    "url": "https://github.com/personaut/personaut-extension/issues"
+    "url": "https://github.com/personaut/personaut/issues"
   },
   "homepage": "https://www.personaut.ai",
   "keywords": [
