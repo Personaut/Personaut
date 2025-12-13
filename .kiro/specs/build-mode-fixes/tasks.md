@@ -592,18 +592,18 @@
     - **Property 9: Session State Preservation**
     - **Validates: Requirements 6.1, 6.5**
 
-- [ ] 28. Write end-to-end integration test
-  - [ ] 28.1 Create integration test for complete build flow
+- [x] 28. Write end-to-end integration test
+  - [x] 28.1 Create integration test for complete build flow
     - Test project creation with title validation
     - Test .personaut folder and planning/ structure creation
     - Test stage file saving and loading
     - _Requirements: 15.1, 15.2_
-  - [ ] 28.2 Create integration test for state restoration
+  - [x] 28.2 Create integration test for state restoration
     - Simulate session invalidation
     - Verify project data is correctly loaded from disk
     - Verify UI state matches persisted state
     - _Requirements: 15.3_
-  - [ ] 28.3 Create integration test for iteration data
+  - [x] 28.3 Create integration test for iteration data
     - Test feedback saving and loading
     - Test consolidated feedback saving and loading
     - Test screenshot saving and loading
