@@ -1,0 +1,57 @@
+# Setup & Installation
+
+This guide will help you set up the Personaut development environment.
+
+## Prerequisites
+
+- **Node.js**: v16.x or higher
+- **npm**: v8.x or higher (usually comes with Node.js)
+- **VS Code**: Latest version recommended
+
+## Installation
+
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/Personaut/Personaut.git
+    cd Personaut
+    ```
+
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
+3.  **Compile the extension**:
+    ```bash
+    npm run compile
+    ```
+
+## Running Locally
+
+1.  Open the project in VS Code:
+    ```bash
+    code .
+    ```
+
+2.  Press `F5` or verify that the "Run Extension" launch configuration is selected in the Run and Debug view.
+3.  A new VS Code Host window will open with the extension loaded.
+
+## Webview Development
+
+The Personaut UI is built with React.
+
+-   **Source**: `src/webview/`
+-   **Build**: The webview is bundled by `esbuild` during the `npm run compile` step.
+-   **Hot Reload**: Currently, you must reload the extension host (`Cmd+R` / `Ctrl+R`) to see changes in the webview.
+
+## Troubleshooting
+
+### Webview not loading
+Ensure you have run `npm run compile` at least once. If the issue persists, check the Debug Console in the main VS Code window for errors.
+
+### Dependency issues
+If you encounter errors related to missing modules, try removing `node_modules` and re-installing:
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```

@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2020",
+    "outDir": "out",
+    "lib": [
+      "es2020",
+      "dom"
+    ],
+    "sourceMap": true,
+    "rootDir": "src",
+    "strict": true,
+    "jsx": "react",
+    "esModuleInterop": true,
+    
+    /* Path aliases for clean imports */
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["src/core/*"],
+      "@features/*": ["src/features/*"],
+      "@shared/*": ["src/shared/*"],
+      "@presentation/*": ["src/presentation/*"],
+      "@webview/*": ["src/webview/*"]
+    },
+    
+    /* Additional strict checks */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "exclude": [
+    "node_modules",
+    ".vscode-test"
+  ]
+}

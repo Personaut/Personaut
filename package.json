@@ -1,0 +1,213 @@
+{
+  "name": "personaut-extension",
+  "publisher": "personaut",
+  "displayName": "Personaut",
+  "description": "Personaut AI Coding Assistant",
+  "version": "0.0.1",
+  "license": "Apache-2.0",
+  "icon": "media/assets/personaut-logo.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/personaut/personaut-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/personaut/personaut-extension/issues"
+  },
+  "homepage": "https://www.personaut.ai",
+  "keywords": [
+    "ai",
+    "assistant",
+    "coding",
+    "automation",
+    "personas",
+    "feedback",
+    "user-research",
+    "empathetic-development"
+  ],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages",
+    "Testing"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.bundle.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "personaut.clearCache",
+        "title": "Personaut: Clear Cache",
+        "category": "Personaut"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "personaut-sidebar",
+          "title": "Personaut",
+          "icon": "media/assets/personaut-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "personaut-sidebar": [
+        {
+          "type": "webview",
+          "id": "personaut.chatView",
+          "name": "Chat",
+          "icon": "media/assets/personaut-icon.png"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Personaut",
+      "properties": {
+        "personaut.provider": {
+          "type": "string",
+          "enum": [
+            "nativeIde",
+            "gemini",
+            "bedrock",
+            "openai"
+          ],
+          "default": "nativeIde",
+          "description": "AI Provider"
+        },
+        "personaut.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API Key"
+        },
+        "personaut.geminiModel": {
+          "type": "string",
+          "default": "gemini-1.5-pro-latest",
+          "description": "Google Gemini Model ID"
+        },
+        "personaut.awsAccessKey": {
+          "type": "string",
+          "default": "",
+          "description": "AWS Access Key ID (for Bedrock)"
+        },
+        "personaut.awsSecretKey": {
+          "type": "string",
+          "default": "",
+          "description": "AWS Secret Access Key (for Bedrock)"
+        },
+        "personaut.awsRegion": {
+          "type": "string",
+          "default": "us-east-1",
+          "description": "AWS Region (for Bedrock)"
+        },
+        "personaut.awsProfile": {
+          "type": "string",
+          "default": "default",
+          "description": "AWS Profile Name (for Bedrock)"
+        },
+        "personaut.bedrockUseAwsProfile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use AWS Profile for Bedrock credentials"
+        },
+        "personaut.bedrockModel": {
+          "type": "string",
+          "default": "anthropic.claude-3-sonnet-20240229-v1:0",
+          "description": "AWS Bedrock Model ID"
+        },
+        "personaut.bedrockUseVpcEndpoint": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use VPC Endpoint for Bedrock"
+        },
+        "personaut.bedrockVpcEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "VPC Endpoint URL for Bedrock"
+        },
+        "personaut.bedrockCrossRegionInference": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Cross-Region Inference for Bedrock"
+        },
+        "personaut.mcpServers": {
+          "type": "object",
+          "default": {},
+          "description": "Configuration for MCP Servers. Format: { \"serverName\": { \"command\": \"executable\", \"args\": [\"arg1\"] } }"
+        },
+        "personaut.theme": {
+          "type": "string",
+          "enum": [
+            "dark",
+            "match-ide",
+            "personaut"
+          ],
+          "default": "dark",
+          "description": "Theme for the Personaut interface"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build-extension && npm run build-webview && npm run build-css",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build-extension": "node esbuild-extension.js --production",
+    "watch-extension": "node esbuild-extension.js --watch",
+    "build-webview": "node esbuild.js --production",
+    "watch-webview": "node esbuild.js --watch",
+    "build-css": "tailwindcss -i ./src/webview/main.css -o ./media/style.css",
+    "watch-css": "tailwindcss -i ./src/webview/main.css -o ./media/style.css --watch",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ]
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^18.x",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.48.1",
+    "@typescript-eslint/parser": "^8.48.1",
+    "autoprefixer": "^10.4.0",
+    "esbuild": "^0.27.1",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "fast-check": "^3.23.2",
+    "husky": "^9.1.7",
+    "jest": "^29.7.0",
+    "lint-staged": "^16.2.7",
+    "postcss": "^8.4.0",
+    "prettier": "^3.7.4",
+    "tailwindcss": "^3.4.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.700.0",
+    "@aws-sdk/credential-providers": "^3.700.0",
+    "@google/genai": "^1.31.0",
+    "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "proxy-agent": "^6.5.0",
+    "puppeteer": "^24.32.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "semver": "^7.7.3"
+  }
+}

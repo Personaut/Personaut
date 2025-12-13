@@ -1,0 +1,50 @@
+# Project Structure
+
+This document details the file and directory structure of the Personaut repository.
+
+## Root Directory
+
+| File/Directory | Description |
+| :--- | :--- |
+| `src/` | Source code for the extension and webview. |
+| `docs/` | Documentation (this wiki). |
+| `node_modules/` | NPM dependencies. |
+| `out/` | Compiled JavaScript output (generated). |
+| `package.json` | Project manifest and scripts. |
+| `tsconfig.json` | TypeScript configuration. |
+| `README.md` | Main entry point for the repository. |
+| `CONTRIBUTING.md` | Guidelines for contributors. |
+
+## Source Directory (`src/`)
+
+The `src` folder is the heart of the application.
+
+### `src/core/`
+Contains the core business logic and services that power the extension.
+-   `agent/`: The AI agent implementation.
+-   `providers/`: Implementations for different AI providers (Gemini, OpenAI, Bedrock, Native IDE).
+
+### `src/features/`
+Contains feature-specific code. Each folder corresponds to a functional area.
+-   `build-mode/`: Logic for the "Build" mode where the agent creates code.
+-   `chat/`: Standard chat functionality.
+-   `personas/`: Logic for managing and simulating user personas.
+-   `feedback/`: Logic for collecting and generating feedback from personas.
+-   `settings/`: Management of user settings and configuration.
+
+### `src/presentation/`
+Handles the integration with VS Code's UI APIs.
+-   `SidebarProvider.ts`: The main WebviewViewProvider that loads the React app.
+
+### `src/webview/`
+The React application that runs inside the sidebar.
+-   `App.tsx`: Main component.
+-   `index.css`: Global styles (Tailwind or custom).
+-   `*.tsx`: Components for different tabs and views.
+
+### `src/di/`
+Dependency Injection setup.
+-   `Container.ts`: The DI container configuration.
+
+### `src/shared/`
+Utilities and types shared between backend and frontend (where possible) or across backend modules.

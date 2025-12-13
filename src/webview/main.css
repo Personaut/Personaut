@@ -1,0 +1,202 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --bg-primary: var(--vscode-editor-background);
+        --bg-secondary: var(--vscode-sideBar-background);
+        --bg-tertiary: var(--vscode-editorWidget-background);
+        --text-primary: var(--vscode-editor-foreground);
+        --text-secondary: var(--vscode-descriptionForeground);
+        --text-muted: var(--vscode-disabledForeground);
+        --border-color: var(--vscode-widget-border);
+        --accent-color: var(--vscode-button-background);
+        --accent-hover: var(--vscode-button-hoverBackground);
+        --accent-text: var(--vscode-button-foreground);
+        --accent-dim: var(--vscode-editor-selectionBackground);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.animate-fadeIn {
+    animation: modalFadeIn 0.2s ease-out forwards;
+}
+
+/* Accessibility: Focus styles for keyboard navigation */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+/* Skip link for keyboard users */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--accent-color);
+    color: var(--accent-text);
+    padding: 8px;
+    z-index: 100;
+    transition: top 0.3s;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* Ensure interactive elements have visible focus */
+.focus-ring:focus-visible {
+    ring: 2px;
+    ring-color: var(--accent-color);
+    ring-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    button,
+    a,
+    input,
+    select,
+    textarea {
+        border: 2px solid currentColor;
+    }
+    
+    button:focus-visible,
+    a:focus-visible {
+        outline-width: 3px;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Build Logs */
+.build-logs-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.build-logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.build-logs-header h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.build-logs-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.log-entry {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.log-timestamp {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.log-message {
+  color: var(--text-primary);
+}
+
+.log-info .log-message {
+  color: var(--text-primary);
+}
+
+.log-success .log-message {
+  color: #4ec9b0;
+}
+
+.log-warning .log-message {
+  color: #cca700;
+}
+
+.log-error .log-message {
+  color: #f14c4c;
+}
+
+.log-ai .log-message {
+  color: #9cdcfe;
+}
+
+.log-ai-content {
+  white-space: pre-wrap;
+  background: var(--bg-primary);
+  padding: 8px;
+  border-radius: 4px;
+  margin-top: 4px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+}
+
+.log-empty {
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 20px;
+  font-style: italic;
+}

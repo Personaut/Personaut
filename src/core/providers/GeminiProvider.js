@@ -1,0 +1,89 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.GeminiProvider = void 0;
+// Model identifiers for Gemini
+const MODEL_IDENTIFIERS = {
+    gemini: {
+        default: 'gemini-2.5-flash',
+    },
+};
+class GeminiProvider {
+    constructor(config) {
+        if (!config.apiKey) {
+            throw new Error('Gemini API Key is required');
+        }
+        this.apiKey = config.apiKey;
+        this.modelId = config.modelId || MODEL_IDENTIFIERS.gemini.default;
+    }
+    async chat(history, systemPrompt) {
+        // Get the last user message
+        const lastUserMessage = history.filter((m) => m.role === 'user').pop();
+        if (!lastUserMessage) {
+            throw new Error('No user message found in history');
+        }
+        // Build conversation history for context
+        const contents = [];
+        // Add previous messages as context (excluding the last user message)
+        history
+            .filter((m) => m.role !== 'error')
+            .slice(0, -1)
+            .forEach((m) => {
+            contents.push({
+                role: m.role === 'user' ? 'user' : 'model',
+                parts: [{ text: m.text }],
+            });
+        });
+        // Add the current message
+        contents.push({
+            role: 'user',
+            parts: [{ text: lastUserMessage.text }],
+        });
+        // Build the Vertex AI API URL (matching the working curl command structure)
+        const url = `https://aiplatform.googleapis.com/v1/publishers/google/models/${this.modelId}:generateContent?key=${this.apiKey}`;
+        // Build request body with system instruction
+        const requestBody = {
+            contents: contents,
+            generationConfig: {
+                maxOutputTokens: 4096, // Limit output to prevent excessive token usage
+            },
+        };
+        // Add system instruction if provided (this is the proper Gemini way to set system prompt)
+        if (systemPrompt) {
+            requestBody.systemInstruction = {
+                parts: [{ text: systemPrompt }],
+            };
+        }
+        // Make the API request
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+        });
+        if (!response.ok) {
+            const errorBody = await response.text();
+            throw new Error(errorBody);
+        }
+        const data = await response.json();
+        // Extract the text from the response
+        let text = '';
+        if (data.candidates && data.candidates[0]?.content?.parts) {
+            text = data.candidates[0].content.parts.map((part) => part.text || '').join('');
+        }
+        const providerResponse = {
+            text: text,
+        };
+        // Check for usage metadata if available
+        if (data.usageMetadata) {
+            providerResponse.usage = {
+                inputTokens: data.usageMetadata.promptTokenCount || 0,
+                outputTokens: data.usageMetadata.candidatesTokenCount || 0,
+                totalTokens: data.usageMetadata.totalTokenCount || 0,
+            };
+        }
+        return providerResponse;
+    }
+}
+exports.GeminiProvider = GeminiProvider;
+//# sourceMappingURL=GeminiProvider.js.map

@@ -1,0 +1,8 @@
+node_modules/
+out/
+*.vsix
+media/style.css
+package-lock.json
+.kiro/
+.personaut/
+.git/

@@ -1,0 +1,62 @@
+# System Architecture
+
+Personaut is built as a VS Code extension with a modern, feature-based architecture that prioritizes modularity, testability, and separation of concerns.
+
+## High-Level Overview
+
+The extension consists of two main parts:
+1.  **Extension Host (Backend)**: TypeScript code running in the Node.js Node.js process of VS Code.
+2.  **Webview (Frontend)**: React application running in an isolated iframe within VS Code.
+
+Communication between them happens via the `postMessage` pattern, governed by the `SidebarProvider`.
+
+## Core Concepts
+
+### Dependency Injection (DI)
+We use a custom DI container (`src/di/Container.ts`) to manage dependencies. This allows for loose coupling and makes testing easier by allowing services to be mocked.
+
+### Feature-Based Structure
+The codebase is organized by features rather than layers. Each feature (e.g., `chat`, `personas`) is self-contained in `src/features/<feature-name>` and typically contains:
+-   **Handlers**: Logic for processing messages from the frontend.
+-   **Services**: Core business logic.
+-   **Types**: Feature-specific type definitions.
+
+### Message Routing
+The `SidebarProvider` acts as the central router. It receives messages from the webview (e.g., `{ type: 'chat-message', ... }`) and dispatches them to the appropriate Feature Handler.
+
+### AI Agent
+The `Agent` (`src/core/agent/Agent.ts`) is the core intelligence unit. It interfaces with various AI Providers (Gemini, OpenAI, Bedrock) to generate responses.
+
+## Directory Structure
+
+```
+src/
+├── core/              # Core infrastructure (Agent, Providers)
+├── features/          # Feature implementations
+│   ├── build-mode/    # Build mode logic
+│   ├── chat/          # Chat interface logic
+│   ├── personas/      # Persona management
+│   ├── feedback/      # Feedback generation
+│   └── settings/      # Configuration
+├── shared/            # Shared utilities
+├── presentation/      # UI Layer (SidebarProvider)
+├── di/                # Dependency Injection
+└── webview/           # React Frontend
+```
+
+## Data Flow
+
+1.  **User Action**: User clicks "Send" in the functionality.
+2.  **Frontend**: React component sends a message via `vscode.postMessage`.
+3.  **Router**: `SidebarProvider` receives the message.
+4.  **Handler**: The message is routed to `ChatHandler`.
+5.  **Service**: `ChatHandler` calls `Agent.chat()`.
+6.  **Provider**: `Agent` uses the configured Provider (e.g. `GeminiProvider`) to call the LLM.
+7.  **Response**: The LLM response flows back up the chain.
+8.  **Update**: `ChatHandler` sends a response message back to the Webview to update the UI.
+
+## Security
+
+-   **Input Validation**: All inputs from the webview are validated before processing.
+-   **Workspace Isolation**: File operations are strictly limited to the active workspace.
+-   **Content Security Policy**: The webview uses a strict CSP to prevent XSS.

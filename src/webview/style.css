@@ -1,0 +1,160 @@
+/**
+ * Webview styles
+ * Uses CSS custom properties for theming
+ * 
+ * Requirements: 1.5
+ */
+
+:root {
+  /* Color variables - will be set by VS Code theme */
+  --vscode-editor-background: #1e1e1e;
+  --vscode-editor-foreground: #d4d4d4;
+  --vscode-input-background: #3c3c3c;
+  --vscode-input-foreground: #cccccc;
+  --vscode-button-background: #0e639c;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #1177bb;
+  --vscode-list-hoverBackground: #2a2d2e;
+  --vscode-list-activeSelectionBackground: #094771;
+  --vscode-list-inactiveSelectionBackground: #37373d;
+  --vscode-editorWidget-background: #252526;
+  --vscode-editorWidget-border: #454545;
+  --vscode-focusBorder: #007acc;
+  --vscode-textLink-foreground: #3794ff;
+  --vscode-textLink-activeForeground: #4daafc;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  overflow: hidden;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}
+
+/* Utility classes for theming */
+.bg-primary {
+  background-color: var(--vscode-editor-background);
+}
+
+.bg-secondary {
+  background-color: var(--vscode-editorWidget-background);
+}
+
+.bg-tertiary {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.text-primary {
+  color: var(--vscode-editor-foreground);
+}
+
+.text-secondary {
+  color: var(--vscode-input-foreground);
+}
+
+.text-muted {
+  color: var(--vscode-descriptionForeground, #858585);
+}
+
+.text-accent {
+  color: var(--vscode-textLink-foreground);
+}
+
+.border-border {
+  border-color: var(--vscode-editorWidget-border);
+}
+
+.border-accent {
+  border-color: var(--vscode-focusBorder);
+}
+
+.selection\:bg-accent-dim::selection {
+  background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--vscode-editor-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, #424242);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground, #4f4f4f);
+}
+
+/* Button styles */
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+/* Input styles */
+input,
+textarea {
+  font-family: inherit;
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-editorWidget-border);
+}
+
+input:focus,
+textarea:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Link styles */
+a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--vscode-textLink-activeForeground);
+  text-decoration: underline;
+}
+
+/* Personaut logo animation */
+.personaut-logo {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}

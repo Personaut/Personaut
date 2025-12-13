@@ -1,0 +1,739 @@
+/**
+ * StageManager - Manages file-based stage persistence for the build workflow.
+ *
+ * Implements stage file operations:
+ * - Read/write stage files with atomic operations
+ * - Track stage completion status
+ * - Validate stage transitions
+ * - Initialize project directory structure
+ *
+ * Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import {
+  StageFile,
+  StageTransition,
+  WriteResult,
+  BuildState,
+  STAGE_ORDER,
+  StageName,
+  STAGE_FILE_VERSION,
+} from '../types/BuildModeTypes';
+
+/**
+ * Callback type for notifying about write operations.
+ */
+export type WriteNotificationCallback = (result: WriteResult) => void;
+
+/**
+ * Result of validating a BuildState structure.
+ */
+export interface BuildStateValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Validate that a BuildState object contains all required fields with correct types.
+ *
+ * @param state - The BuildState object to validate
+ * @returns BuildStateValidationResult with validation status and any errors/warnings
+ */
+export function validateBuildState(state: unknown): BuildStateValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (state === null || typeof state !== 'object') {
+    errors.push('BuildState must be a non-null object');
+    return { valid: false, errors, warnings };
+  }
+
+  const obj = state as Record<string, unknown>;
+
+  if (typeof obj.projectName !== 'string') {
+    errors.push('projectName must be a string');
+  } else if (obj.projectName.length === 0) {
+    errors.push('projectName cannot be empty');
+  }
+
+  if (obj.projectTitle !== undefined && typeof obj.projectTitle !== 'string') {
+    errors.push('projectTitle must be a string when provided');
+  }
+
+  if (typeof obj.createdAt !== 'number') {
+    errors.push('createdAt must be a number (timestamp)');
+  } else if (obj.createdAt < 0) {
+    warnings.push('createdAt should be a positive timestamp');
+  }
+
+  if (typeof obj.lastUpdated !== 'number') {
+    errors.push('lastUpdated must be a number (timestamp)');
+  } else if (obj.lastUpdated < 0) {
+    warnings.push('lastUpdated should be a positive timestamp');
+  }
+
+  if (obj.stages === null || typeof obj.stages !== 'object') {
+    errors.push('stages must be a non-null object');
+  } else {
+    const stages = obj.stages as Record<string, unknown>;
+
+    for (const [stageName, stageInfo] of Object.entries(stages)) {
+      if (stageInfo === null || typeof stageInfo !== 'object') {
+        errors.push(`stages.${stageName} must be a non-null object`);
+        continue;
+      }
+
+      const info = stageInfo as Record<string, unknown>;
+
+      if (typeof info.completed !== 'boolean') {
+        errors.push(`stages.${stageName}.completed must be a boolean`);
+      }
+
+      if (typeof info.path !== 'string') {
+        errors.push(`stages.${stageName}.path must be a string`);
+      } else if (info.path.length === 0) {
+        errors.push(`stages.${stageName}.path cannot be empty`);
+      }
+
+      if (typeof info.updatedAt !== 'number') {
+        errors.push(`stages.${stageName}.updatedAt must be a number (timestamp)`);
+      }
+
+      if (info.error !== undefined && typeof info.error !== 'string') {
+        errors.push(`stages.${stageName}.error must be a string when provided`);
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Sanitize a project title to create a valid directory name.
+ *
+ * @param title - The project title to sanitize
+ * @returns A valid directory name
+ */
+export function sanitizeProjectName(title: string): string {
+  return title
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-_]/g, '')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 50);
+}
+
+/**
+ * Validate a project name.
+ *
+ * @param name - The project name to validate
+ * @returns true if the name is valid
+ */
+export function isValidProjectName(name: string): boolean {
+  if (!name || name.length === 0 || name.length > 50) {
+    return false;
+  }
+  return /^[a-z0-9][a-z0-9-_]*[a-z0-9]$|^[a-z0-9]$/.test(name);
+}
+
+export class StageManager {
+  private readonly baseDir: string;
+  private writeNotificationCallback?: WriteNotificationCallback;
+
+  constructor(
+    baseDir: string = '.personaut',
+    writeNotificationCallback?: WriteNotificationCallback
+  ) {
+    this.baseDir = baseDir;
+    this.writeNotificationCallback = writeNotificationCallback;
+  }
+
+  setWriteNotificationCallback(callback: WriteNotificationCallback): void {
+    this.writeNotificationCallback = callback;
+  }
+
+  getStageFilePath(projectName: string, stage: string): string {
+    if (stage === 'idea') {
+      return path.join(this.baseDir, projectName, `${projectName}.json`);
+    }
+    return path.join(this.baseDir, projectName, `${stage}.stage.json`);
+  }
+
+  getBuildStatePath(projectName: string): string {
+    return path.join(this.baseDir, projectName, 'build-state.json');
+  }
+
+  getProjectDir(projectName: string): string {
+    return path.join(this.baseDir, projectName);
+  }
+
+  projectExists(projectName: string): boolean {
+    const projectDir = this.getProjectDir(projectName);
+    return fs.existsSync(projectDir);
+  }
+
+  async projectExistsAsync(projectName: string): Promise<boolean> {
+    const projectDir = this.getProjectDir(projectName);
+    try {
+      await fs.promises.access(projectDir);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async readBuildState(projectName: string): Promise<BuildState | null> {
+    const filePath = this.getBuildStatePath(projectName);
+    try {
+      if (!fs.existsSync(filePath)) {
+        return null;
+      }
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const state = JSON.parse(content) as BuildState;
+
+      if (!state.projectTitle) {
+        state.projectTitle = state.projectName;
+      }
+
+      if (!state.stages || typeof state.stages !== 'object') {
+        state.stages = {};
+      }
+
+      return state;
+    } catch (error) {
+      console.warn(`[StageManager] Failed to read build state for ${projectName}:`, error);
+      return null;
+    }
+  }
+
+  async writeBuildState(projectName: string, state: BuildState): Promise<void> {
+    const filePath = this.getBuildStatePath(projectName);
+    const projectDir = this.getProjectDir(projectName);
+
+    const stateToWrite: BuildState = {
+      ...state,
+      projectTitle: state.projectTitle || state.projectName,
+    };
+
+    const content = JSON.stringify(stateToWrite, null, 2);
+    const tempPath = `${filePath}.tmp.${Date.now()}`;
+
+    try {
+      await fs.promises.mkdir(projectDir, { recursive: true });
+      await fs.promises.writeFile(tempPath, content, 'utf-8');
+      await fs.promises.rename(tempPath, filePath);
+    } catch (error) {
+      console.error(`[StageManager] Failed to write build state for ${projectName}:`, error);
+
+      try {
+        if (fs.existsSync(tempPath)) {
+          await fs.promises.unlink(tempPath);
+        }
+      } catch (cleanupError: any) {
+        console.warn(
+          `[StageManager] Failed to cleanup temp file ${tempPath}:`,
+          cleanupError.message
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  private async updateBuildState(
+    projectName: string,
+    stage: string,
+    completed: boolean,
+    error?: string
+  ): Promise<void> {
+    let state = await this.readBuildState(projectName);
+
+    if (!state) {
+      state = {
+        projectName,
+        projectTitle: projectName,
+        createdAt: Date.now(),
+        lastUpdated: Date.now(),
+        stages: {},
+      };
+    }
+
+    if (!state.stages || typeof state.stages !== 'object') {
+      state.stages = {};
+    }
+
+    state.lastUpdated = Date.now();
+    state.stages[stage] = {
+      completed,
+      path: stage === 'idea' ? `${projectName}.json` : `${stage}.stage.json`,
+      updatedAt: Date.now(),
+      error,
+    };
+
+    await this.writeBuildState(projectName, state);
+  }
+
+  async syncBuildState(projectName: string): Promise<BuildState> {
+    let state = await this.readBuildState(projectName);
+    if (!state) {
+      state = {
+        projectName,
+        projectTitle: projectName,
+        createdAt: Date.now(),
+        lastUpdated: Date.now(),
+        stages: {},
+      };
+    }
+
+    if (!state.stages || typeof state.stages !== 'object') {
+      state.stages = {};
+    }
+
+    const files = await this.getAllStageFiles(projectName);
+    for (const [stage, file] of files) {
+      state.stages[stage] = {
+        completed: file.completed,
+        path: stage === 'idea' ? `${projectName}.json` : `${stage}.stage.json`,
+        updatedAt: file.timestamp,
+        error: file.error,
+      };
+    }
+    state.lastUpdated = Date.now();
+
+    await this.writeBuildState(projectName, state);
+    return state;
+  }
+
+  async readStageFile(projectName: string, stage: string): Promise<StageFile | null> {
+    let filePath: string;
+
+    const state = await this.readBuildState(projectName);
+    if (state && state.stages[stage] && state.stages[stage].path) {
+      filePath = path.join(this.getProjectDir(projectName), state.stages[stage].path);
+    } else {
+      filePath = this.getStageFilePath(projectName, stage);
+    }
+
+    try {
+      if (!fs.existsSync(filePath)) {
+        return null;
+      }
+
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const parsed = JSON.parse(content) as StageFile;
+
+      if (
+        typeof parsed.stage !== 'string' ||
+        typeof parsed.completed !== 'boolean' ||
+        typeof parsed.timestamp !== 'number'
+      ) {
+        throw new Error('Invalid stage file format: missing required fields');
+      }
+
+      return parsed;
+    } catch (error: any) {
+      if (
+        error instanceof SyntaxError ||
+        error instanceof TypeError ||
+        error.message.includes('Invalid stage file format')
+      ) {
+        await this.handleCorruptedFile(filePath, error.message);
+      }
+      console.error(`Error reading stage file ${filePath}:`, error.message);
+      return null;
+    }
+  }
+
+  async writeStageFile(
+    projectName: string,
+    stage: string,
+    data: any,
+    completed: boolean
+  ): Promise<WriteResult> {
+    const filePath = this.getStageFilePath(projectName, stage);
+    const projectDir = this.getProjectDir(projectName);
+
+    const stageFile: StageFile = {
+      stage,
+      completed,
+      timestamp: Date.now(),
+      data,
+      version: STAGE_FILE_VERSION,
+    };
+
+    const content = JSON.stringify(stageFile, null, 2);
+    const tempPath = `${filePath}.tmp.${Date.now()}`;
+
+    try {
+      await fs.promises.mkdir(projectDir, { recursive: true });
+      await fs.promises.writeFile(tempPath, content, 'utf-8');
+      await fs.promises.rename(tempPath, filePath);
+
+      await this.updateBuildState(projectName, stage, completed);
+
+      const result: WriteResult = {
+        success: true,
+        filePath,
+        isAlternateLocation: false,
+      };
+
+      return result;
+    } catch (error: any) {
+      console.error(`[StageManager] Write error for ${filePath}:`, {
+        error: error.message,
+        code: error.code,
+        projectName,
+        stage,
+        timestamp: new Date().toISOString(),
+      });
+
+      try {
+        if (fs.existsSync(tempPath)) {
+          await fs.promises.unlink(tempPath);
+        }
+      } catch (cleanupError: any) {
+        console.warn(
+          `[StageManager] Failed to cleanup temp file ${tempPath}:`,
+          cleanupError.message
+        );
+      }
+
+      const alternatePath = path.join(os.tmpdir(), `personaut-${projectName}-${stage}.stage.json`);
+      try {
+        await fs.promises.writeFile(alternatePath, content, 'utf-8');
+
+        console.warn(`[StageManager] Stage file written to alternate location: ${alternatePath}`, {
+          originalPath: filePath,
+          originalError: error.message,
+          timestamp: new Date().toISOString(),
+        });
+
+        const result: WriteResult = {
+          success: true,
+          filePath: alternatePath,
+          isAlternateLocation: true,
+          errorMessage: `Original location failed: ${error.message}. File saved to alternate location.`,
+        };
+
+        if (this.writeNotificationCallback) {
+          this.writeNotificationCallback(result);
+        }
+
+        return result;
+      } catch (altError: any) {
+        console.error(`[StageManager] Failed to write to alternate location ${alternatePath}:`, {
+          alternateError: altError.message,
+          alternateCode: altError.code,
+          originalError: error.message,
+          originalCode: error.code,
+          projectName,
+          stage,
+          timestamp: new Date().toISOString(),
+        });
+
+        const result: WriteResult = {
+          success: false,
+          filePath,
+          isAlternateLocation: false,
+          errorMessage: `Failed to write stage file: ${error.message}. Alternate location also failed: ${altError.message}`,
+        };
+
+        if (this.writeNotificationCallback) {
+          this.writeNotificationCallback(result);
+        }
+
+        throw new Error(result.errorMessage);
+      }
+    }
+  }
+
+  async writeStageFileWithError(
+    projectName: string,
+    stage: string,
+    data: any,
+    errorMessage: string
+  ): Promise<WriteResult> {
+    const filePath = this.getStageFilePath(projectName, stage);
+    const projectDir = this.getProjectDir(projectName);
+
+    const stageFile: StageFile = {
+      stage,
+      completed: false,
+      timestamp: Date.now(),
+      data,
+      version: STAGE_FILE_VERSION,
+      error: errorMessage,
+    };
+
+    const content = JSON.stringify(stageFile, null, 2);
+    const tempPath = `${filePath}.tmp.${Date.now()}`;
+
+    try {
+      await fs.promises.mkdir(projectDir, { recursive: true });
+      await fs.promises.writeFile(tempPath, content, 'utf-8');
+      await fs.promises.rename(tempPath, filePath);
+
+      await this.updateBuildState(projectName, stage, false, errorMessage);
+
+      const result: WriteResult = {
+        success: true,
+        filePath,
+        isAlternateLocation: false,
+      };
+
+      return result;
+    } catch (error: any) {
+      console.error(`[StageManager] Write error (with error state) for ${filePath}:`, {
+        error: error.message,
+        code: error.code,
+        projectName,
+        stage,
+        stageError: errorMessage,
+        timestamp: new Date().toISOString(),
+      });
+
+      try {
+        if (fs.existsSync(tempPath)) {
+          await fs.promises.unlink(tempPath);
+        }
+      } catch (cleanupError: any) {
+        console.warn(
+          `[StageManager] Failed to cleanup temp file ${tempPath}:`,
+          cleanupError.message
+        );
+      }
+
+      const alternatePath = path.join(os.tmpdir(), `personaut-${projectName}-${stage}.stage.json`);
+      try {
+        await fs.promises.writeFile(alternatePath, content, 'utf-8');
+
+        console.warn(
+          `[StageManager] Stage file with error written to alternate location: ${alternatePath}`,
+          {
+            originalPath: filePath,
+            originalError: error.message,
+            stageError: errorMessage,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        const result: WriteResult = {
+          success: true,
+          filePath: alternatePath,
+          isAlternateLocation: true,
+          errorMessage: `Original location failed: ${error.message}. File saved to alternate location.`,
+        };
+
+        if (this.writeNotificationCallback) {
+          this.writeNotificationCallback(result);
+        }
+
+        return result;
+      } catch (altError: any) {
+        console.error(
+          `[StageManager] Failed to write error state to alternate location ${alternatePath}:`,
+          {
+            alternateError: altError.message,
+            alternateCode: altError.code,
+            originalError: error.message,
+            originalCode: error.code,
+            projectName,
+            stage,
+            stageError: errorMessage,
+            timestamp: new Date().toISOString(),
+          }
+        );
+
+        const result: WriteResult = {
+          success: false,
+          filePath,
+          isAlternateLocation: false,
+          errorMessage: `Failed to write stage file with error: ${error.message}. Alternate location also failed: ${altError.message}`,
+        };
+
+        if (this.writeNotificationCallback) {
+          this.writeNotificationCallback(result);
+        }
+
+        throw new Error(result.errorMessage);
+      }
+    }
+  }
+
+  async getStageError(projectName: string, stage: string): Promise<string | null> {
+    const state = await this.readBuildState(projectName);
+    if (state && state.stages[stage]) {
+      return state.stages[stage].error || null;
+    }
+    const stageFile = await this.readStageFile(projectName, stage);
+    if (!stageFile) {
+      return null;
+    }
+    return stageFile.error ?? null;
+  }
+
+  async clearStageError(projectName: string, stage: string): Promise<void> {
+    const stageFile = await this.readStageFile(projectName, stage);
+    if (stageFile) {
+      await this.writeStageFile(projectName, stage, stageFile.data, stageFile.completed);
+    }
+  }
+
+  async isStageComplete(projectName: string, stage: string): Promise<boolean> {
+    const state = await this.readBuildState(projectName);
+    if (state && state.stages[stage]) {
+      return state.stages[stage].completed;
+    }
+
+    const stageFile = await this.readStageFile(projectName, stage);
+    return stageFile !== null && stageFile.completed === true;
+  }
+
+  async getCompletedStages(projectName: string): Promise<string[]> {
+    let state = await this.readBuildState(projectName);
+
+    if (!state) {
+      state = await this.syncBuildState(projectName);
+    }
+
+    if (state) {
+      return Object.entries(state.stages)
+        .filter(([_, info]) => info.completed)
+        .map(([stage, _]) => stage);
+    }
+
+    const completedStages: string[] = [];
+    for (const stage of STAGE_ORDER) {
+      const isComplete = await this.isStageComplete(projectName, stage);
+      if (isComplete) {
+        completedStages.push(stage);
+      }
+    }
+    return completedStages;
+  }
+
+  validateTransition(from: string, to: string, completedStages: string[]): StageTransition {
+    const toIndex = STAGE_ORDER.indexOf(to as StageName);
+
+    if (toIndex === -1) {
+      return {
+        from,
+        to,
+        valid: false,
+        reason: `Invalid stage: ${to}`,
+      };
+    }
+
+    if (toIndex === 0) {
+      return {
+        from,
+        to,
+        valid: true,
+      };
+    }
+
+    const previousStage = STAGE_ORDER[toIndex - 1];
+    if (!completedStages.includes(previousStage)) {
+      return {
+        from,
+        to,
+        valid: false,
+        reason: `Cannot transition to ${to}: previous stage '${previousStage}' is not complete`,
+      };
+    }
+
+    return {
+      from,
+      to,
+      valid: true,
+    };
+  }
+
+  async initializeProject(projectName: string, projectTitle?: string): Promise<void> {
+    const projectDir = this.getProjectDir(projectName);
+
+    await fs.promises.mkdir(projectDir, { recursive: true });
+
+    const initialState: BuildState = {
+      projectName,
+      projectTitle: projectTitle || projectName,
+      createdAt: Date.now(),
+      lastUpdated: Date.now(),
+      stages: {},
+    };
+    await this.writeBuildState(projectName, initialState);
+
+    const ideaFilePath = this.getStageFilePath(projectName, 'idea');
+    if (!fs.existsSync(ideaFilePath)) {
+      await this.writeStageFile(projectName, 'idea', {}, false);
+    }
+  }
+
+  private async handleCorruptedFile(filePath: string, errorMessage: string): Promise<void> {
+    const corruptedPath = `${filePath}.corrupted.${Date.now()}`;
+    try {
+      if (fs.existsSync(filePath)) {
+        await fs.promises.rename(filePath, corruptedPath);
+        console.error(`Corrupted stage file renamed to: ${corruptedPath}. Error: ${errorMessage}`);
+      }
+    } catch (renameError: any) {
+      console.error(`Failed to rename corrupted file: ${renameError.message}`);
+    }
+  }
+
+  stageFileExists(projectName: string, stage: string): boolean {
+    const filePath = this.getStageFilePath(projectName, stage);
+    return fs.existsSync(filePath);
+  }
+
+  async getAllStageFiles(projectName: string): Promise<Map<string, StageFile>> {
+    const stageFiles = new Map<string, StageFile>();
+
+    for (const stage of STAGE_ORDER) {
+      const stageFile = await this.readStageFile(projectName, stage);
+      if (stageFile) {
+        stageFiles.set(stage, stageFile);
+      }
+    }
+
+    return stageFiles;
+  }
+
+  /**
+   * Get all project names in the base directory.
+   */
+  async getProjects(): Promise<string[]> {
+    try {
+      if (!fs.existsSync(this.baseDir)) {
+        return [];
+      }
+
+      const entries = await fs.promises.readdir(this.baseDir, { withFileTypes: true });
+      const projects: string[] = [];
+
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          // Check if it has a build-state.json file to confirm it's a project
+          const buildStatePath = path.join(this.baseDir, entry.name, 'build-state.json');
+          if (fs.existsSync(buildStatePath)) {
+            projects.push(entry.name);
+          }
+        }
+      }
+
+      return projects;
+    } catch (error) {
+      console.error('[StageManager] Error getting projects:', error);
+      return [];
+    }
+  }
+}
