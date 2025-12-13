@@ -199,17 +199,17 @@ export function activate(context: vscode.ExtensionContext) {
       // This will be updated with the real webview when SidebarProvider is ready
       const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
       const conversationManager = container.resolve<ConversationManager>('conversationManager');
-      
+
       // Create a minimal mock webview for initialization
       const mockWebview = {
         postMessage: () => Promise.resolve(true),
-        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        onDidReceiveMessage: () => ({ dispose: () => { } }),
         asWebviewUri: (uri: vscode.Uri) => uri,
         cspSource: '',
         html: '',
         options: {},
       } as any as vscode.Webview;
-      
+
       agentManagerInstance = new AgentManager({
         webview: mockWebview,
         tokenStorageService,
@@ -278,12 +278,14 @@ export function activate(context: vscode.ExtensionContext) {
     const contentStreamer = container.resolve<ContentStreamer>('contentStreamer');
     const buildLogManager = container.resolve<BuildLogManager>('buildLogManager');
     const inputValidator = container.resolve<InputValidator>('inputValidator');
+    const personasService = container.resolve<PersonasService>('personasService');
     return new BuildModeHandler(
       buildModeService,
       stageManager,
       contentStreamer,
       buildLogManager,
-      inputValidator
+      inputValidator,
+      personasService
     );
   });
 
@@ -302,7 +304,7 @@ export function activate(context: vscode.ExtensionContext) {
         console.log('[Extension] Initializing AgentManager with webview');
         const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
         const conversationManager = container.resolve<ConversationManager>('conversationManager');
-        
+
         agentManagerInstance = new AgentManager({
           webview,
           tokenStorageService,

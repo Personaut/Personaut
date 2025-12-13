@@ -159,12 +159,12 @@
     - Send stream-update messages to webview
     - Handle completion and save to stage file
     - _Requirements: 8.1, 8.2, 8.3_
-  - [ ] 10.2 Add error handling for content generation
+  - [x] 10.2 Add error handling for content generation
     - Catch generation errors and save partial content
     - Mark stage file with error field
     - Send error notification to webview
     - _Requirements: 8.4_
-  - [ ] 10.3 Implement retry from partial content
+  - [x] 10.3 Implement retry from partial content
     - Load partial content from stage file
     - Build resume prompt with context
     - Continue generation from where it left off
@@ -184,13 +184,13 @@
   - Test error handling and retry
 
 - [ ] 12. Implement persona generation from demographics
-  - [ ] 12.1 Add generate-personas-from-demographics handler to BuildModeHandler
+  - [x] 12.1 Add generate-personas-from-demographics handler to BuildModeHandler
     - Accept demographics and description from webview
     - Generate 5 persona configurations with random attribute variations within demographic ranges
     - For each persona, call PersonasService.createPersona() then generateBackstory()
     - Send personas-generated response with full persona data
     - _Requirements: 9.1, 9.2_
-  - [ ] 12.2 Add regenerate-single-persona handler to BuildModeHandler
+  - [x] 12.2 Add regenerate-single-persona handler to BuildModeHandler
     - Accept personaId from webview
     - Call PersonasService.generateBackstory(personaId) to regenerate only that persona
     - Send persona-updated response with updated persona

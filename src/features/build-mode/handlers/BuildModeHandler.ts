@@ -6,8 +6,9 @@
  * - Validate input before processing
  * - Handle errors and send responses to webview
  * - Manage streaming content updates
+ * - Handle persona generation from demographics
  *
- * Validates: Requirements 5.1, 10.1, 10.2
+ * Validates: Requirements 5.1, 10.1, 10.2, 9.1, 9.2
  */
 
 import { IFeatureHandler, WebviewMessage } from '../../../shared/types/CommonTypes';
@@ -18,6 +19,7 @@ import { StageManager, isValidProjectName } from '../services/StageManager';
 import { ContentStreamer } from '../services/ContentStreamer';
 import { BuildLogManager } from '../services/BuildLogManager';
 import { StageName, STAGE_ORDER } from '../types/BuildModeTypes';
+import { PersonasService } from '../../personas/services/PersonasService';
 
 export class BuildModeHandler implements IFeatureHandler {
   private readonly errorSanitizer: ErrorSanitizer;
@@ -30,7 +32,8 @@ export class BuildModeHandler implements IFeatureHandler {
     private readonly stageManager: StageManager,
     _contentStreamer: ContentStreamer,
     _buildLogManager: BuildLogManager,
-    private readonly inputValidator: InputValidator
+    private readonly inputValidator: InputValidator,
+    private readonly personasService?: PersonasService
   ) {
     this.errorSanitizer = new ErrorSanitizer();
   }
@@ -140,6 +143,13 @@ export class BuildModeHandler implements IFeatureHandler {
           break;
         case 'load-iteration-data':
           await this.handleLoadIterationData(message, webview);
+          break;
+        // Persona generation handlers (Task 12)
+        case 'generate-personas-from-demographics':
+          await this.handleGeneratePersonasFromDemographics(message, webview);
+          break;
+        case 'regenerate-single-persona':
+          await this.handleRegenerateSinglePersona(message, webview);
           break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
@@ -822,6 +832,198 @@ export class BuildModeHandler implements IFeatureHandler {
       iterationNumber: message.iterationNumber,
       data: iterationData,
     });
+  }
+
+  // ==================== Persona Generation Handlers (Task 12) ====================
+
+  /**
+   * Generate random value within demographic range.
+   */
+  private generateRandomInRange(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  /**
+   * Pick random item from array.
+   */
+  private pickRandom<T>(array: T[]): T {
+    return array[Math.floor(Math.random() * array.length)];
+  }
+
+  /**
+   * Generate persona attributes from demographics.
+   */
+  private generatePersonaAttributes(
+    demographics: { ageMin?: number; ageMax?: number; occupations?: string[]; description?: string },
+    index: number
+  ): { name: string; attributes: Record<string, string> } {
+    // Generate random age within range
+    const ageMin = demographics.ageMin || 18;
+    const ageMax = demographics.ageMax || 65;
+    const age = this.generateRandomInRange(ageMin, ageMax);
+
+    // Pick occupation
+    const occupations = demographics.occupations || ['Professional', 'Student', 'Entrepreneur'];
+    const occupation = this.pickRandom(occupations);
+
+    // Generate name
+    const firstNames = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Blake', 'Cameron'];
+    const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'];
+    const name = `${this.pickRandom(firstNames)} ${this.pickRandom(lastNames)}`;
+
+    // Build attributes
+    const attributes: Record<string, string> = {
+      age: String(age),
+      occupation,
+    };
+
+    // Add description context if provided
+    if (demographics.description) {
+      attributes.context = demographics.description;
+    }
+
+    // Add persona number for variation
+    attributes.personaIndex = String(index + 1);
+
+    return { name, attributes };
+  }
+
+  /**
+   * Handle generate personas from demographics request.
+   * Validates: Requirements 9.1, 9.2
+   */
+  private async handleGeneratePersonasFromDemographics(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!this.personasService) {
+      throw new Error('PersonasService is not available');
+    }
+
+    const demographics = message.demographics || {};
+    const count = message.count || 5;
+
+    console.log('[BuildModeHandler] Generating personas from demographics:', {
+      demographics,
+      count,
+    });
+
+    // Notify start
+    webview.postMessage({
+      type: 'personas-generation-started',
+      count,
+    });
+
+    const generatedPersonas: any[] = [];
+
+    try {
+      for (let i = 0; i < count; i++) {
+        // Generate persona attributes
+        const { name, attributes } = this.generatePersonaAttributes(demographics, i);
+
+        // Create persona using PersonasService
+        const persona = await this.personasService.createPersona({ name, attributes });
+
+        // Send progress update
+        webview.postMessage({
+          type: 'persona-created',
+          index: i,
+          persona,
+        });
+
+        // Generate backstory for persona
+        try {
+          const backstory = await this.personasService.generateBackstory(persona.id);
+
+          // Update local persona with backstory
+          const updatedPersona = { ...persona, backstory };
+          generatedPersonas.push(updatedPersona);
+
+          // Send backstory update
+          webview.postMessage({
+            type: 'persona-backstory-generated',
+            index: i,
+            persona: updatedPersona,
+          });
+        } catch (backstoryError: any) {
+          console.error(`[BuildModeHandler] Failed to generate backstory for persona ${i}:`, backstoryError);
+          // Still add persona without backstory
+          generatedPersonas.push({ ...persona, backstory: '' });
+
+          webview.postMessage({
+            type: 'persona-backstory-error',
+            index: i,
+            persona,
+            error: this.errorSanitizer.sanitize(backstoryError).userMessage,
+          });
+        }
+      }
+
+      // Send completion
+      webview.postMessage({
+        type: 'personas-generated',
+        personas: generatedPersonas,
+        count: generatedPersonas.length,
+      });
+
+      console.log('[BuildModeHandler] Personas generated successfully:', {
+        count: generatedPersonas.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to generate personas:', error);
+
+      webview.postMessage({
+        type: 'personas-generation-error',
+        error: this.errorSanitizer.sanitize(error).userMessage,
+        partialPersonas: generatedPersonas,
+      });
+    }
+  }
+
+  /**
+   * Handle regenerate single persona request.
+   * Validates: Requirements 9.5
+   */
+  private async handleRegenerateSinglePersona(message: WebviewMessage, webview: any): Promise<void> {
+    if (!this.personasService) {
+      throw new Error('PersonasService is not available');
+    }
+
+    if (!message.personaId) {
+      throw new Error('Persona ID is required');
+    }
+
+    console.log('[BuildModeHandler] Regenerating persona:', {
+      personaId: message.personaId,
+    });
+
+    try {
+      // Generate new backstory
+      const backstory = await this.personasService.generateBackstory(message.personaId);
+
+      // Get updated persona
+      const updatedPersona = await this.personasService.getPersonaById(message.personaId);
+
+      webview.postMessage({
+        type: 'persona-updated',
+        personaId: message.personaId,
+        persona: updatedPersona,
+        backstory,
+      });
+
+      console.log('[BuildModeHandler] Persona regenerated successfully:', {
+        personaId: message.personaId,
+        backstoryLength: backstory.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to regenerate persona:', error);
+
+      webview.postMessage({
+        type: 'persona-regeneration-error',
+        personaId: message.personaId,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
   }
 
   /**
