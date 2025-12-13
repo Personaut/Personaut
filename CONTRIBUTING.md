@@ -48,8 +48,8 @@ Feature requests are welcome! Please include:
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/personaut-extension.git
-cd personaut-extension
+git clone https://github.com/your-username/personaut.git
+cd personaut
 npm install
 ```
 
