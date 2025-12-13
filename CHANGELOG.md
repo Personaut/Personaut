@@ -5,11 +5,15 @@ All notable changes to the Personaut extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2025-12-13
+
+### Fixed
+- API key inputs (Gemini, AWS) now save properly when clicking Save immediately after typing
+- Settings changes are now synced on every keystroke instead of only on blur
 
 ### Added
-- Initial release preparation
-- Security hardening for production deployment
+- Toast notification when settings are saved successfully (auto-dismisses after 2.5 seconds)
+- Visual confirmation for data reset operations
 
 ## [0.0.1] - 2024-12-07
 

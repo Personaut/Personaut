@@ -65,11 +65,14 @@ const ApiKeyInput: React.FC<ApiKeyInputProps> = ({ value, onChange, placeholder,
 
   const handleBlur = () => {
     setIsEditing(false);
-    onChange(localValue);
+    // Value is already synced via onChange in handleChange
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalValue(e.target.value);
+    const newValue = e.target.value;
+    setLocalValue(newValue);
+    // Sync to parent on every keystroke so Save always has latest value
+    onChange(newValue);
   };
 
   const handleClear = () => {
@@ -209,6 +212,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
   >('general');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [_appName, setAppName] = useState<string>('');
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   const [showClearDataConfirm, setShowClearDataConfirm] = useState(false);
 
@@ -231,9 +236,17 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
         }
       } else if (message.type === 'settings-saved') {
         setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
+        setToastMessage('Settings saved successfully!');
+        setShowToast(true);
+        setTimeout(() => {
+          setSaveStatus('idle');
+          setShowToast(false);
+        }, 2500);
       } else if (message.type === 'data-reset-complete') {
         setSaveStatus('saved');
+        setToastMessage('All data has been reset!');
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 2500);
         // The backend calls _handleGetSettings after reset, so we'll get 'settings-loaded' shortly after.
       } else if (message.type === 'settings-error') {
         setSaveStatus('idle'); // Reset status so user can try again
@@ -374,7 +387,26 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ vscode, onSettingsChan
   ];
 
   return (
-    <div className="flex flex-col h-full bg-primary">
+    <div className="flex flex-col h-full bg-primary relative">
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg shadow-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            <span className="text-sm font-medium">{toastMessage}</span>
+            <button
+              onClick={() => setShowToast(false)}
+              className="ml-2 text-white/80 hover:text-white transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header - Sticky */}
       <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 bg-secondary border-b border-border">
         <h2 className="text-xs font-bold text-muted uppercase tracking-widest">Settings</h2>
