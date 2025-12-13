@@ -161,11 +161,71 @@ export class StageManager {
     this.writeNotificationCallback = callback;
   }
 
+  /**
+   * Get the path to the planning directory for a project.
+   * Returns: .personaut/{projectName}/planning
+   * Validates: Requirements 4.1
+   */
+  getPlanningDir(projectName: string): string {
+    return path.join(this.baseDir, projectName, 'planning');
+  }
+
+  /**
+   * Get the path to a stage file using the new planning/ subdirectory structure.
+   * Returns: .personaut/{projectName}/planning/{stage}.json
+   * Validates: Requirements 4.3, Property 7
+   */
   getStageFilePath(projectName: string, stage: string): string {
+    return path.join(this.getPlanningDir(projectName), `${stage}.json`);
+  }
+
+  /**
+   * Get the old (legacy) path to a stage file for backward compatibility.
+   * Used for migration from old file structure.
+   */
+  private getOldStageFilePath(projectName: string, stage: string): string {
     if (stage === 'idea') {
       return path.join(this.baseDir, projectName, `${projectName}.json`);
     }
     return path.join(this.baseDir, projectName, `${stage}.stage.json`);
+  }
+
+  /**
+   * Get the path to the iterations directory for a project.
+   * Returns: .personaut/{projectName}/iterations/{iterationNumber}
+   * Validates: Requirements 5.1, Property 8
+   */
+  getIterationDir(projectName: string, iterationNumber: number): string {
+    return path.join(this.baseDir, projectName, 'iterations', String(iterationNumber));
+  }
+
+  /**
+   * Get the path to a feedback file for an iteration.
+   * Returns: .personaut/{projectName}/iterations/{iterationNumber}/feedback.json
+   * Validates: Requirements 5.2
+   */
+  getFeedbackPath(projectName: string, iterationNumber: number): string {
+    return path.join(this.getIterationDir(projectName, iterationNumber), 'feedback.json');
+  }
+
+  /**
+   * Get the path to consolidated feedback for an iteration.
+   * Returns: .personaut/{projectName}/iterations/{iterationNumber}/consolidated-feedback.md
+   * Validates: Requirements 5.3
+   */
+  getConsolidatedFeedbackPath(projectName: string, iterationNumber: number): string {
+    return path.join(this.getIterationDir(projectName, iterationNumber), 'consolidated-feedback.md');
+  }
+
+  /**
+   * Get the path to a screenshot file for an iteration.
+   * Returns: .personaut/{projectName}/iterations/{iterationNumber}/{pageName}.png
+   * Validates: Requirements 5.4
+   */
+  getScreenshotPath(projectName: string, iterationNumber: number, pageName: string): string {
+    // Sanitize pageName to be filesystem-safe
+    const safeName = pageName.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+    return path.join(this.getIterationDir(projectName, iterationNumber), `${safeName}.png`);
   }
 
   getBuildStatePath(projectName: string): string {
@@ -274,7 +334,7 @@ export class StageManager {
     state.lastUpdated = Date.now();
     state.stages[stage] = {
       completed,
-      path: stage === 'idea' ? `${projectName}.json` : `${stage}.stage.json`,
+      path: `planning/${stage}.json`,
       updatedAt: Date.now(),
       error,
     };
@@ -302,7 +362,7 @@ export class StageManager {
     for (const [stage, file] of files) {
       state.stages[stage] = {
         completed: file.completed,
-        path: stage === 'idea' ? `${projectName}.json` : `${stage}.stage.json`,
+        path: `planning/${stage}.json`,
         updatedAt: file.timestamp,
         error: file.error,
       };
@@ -320,12 +380,21 @@ export class StageManager {
     if (state && state.stages[stage] && state.stages[stage].path) {
       filePath = path.join(this.getProjectDir(projectName), state.stages[stage].path);
     } else {
+      // Try new location first (planning/{stage}.json)
       filePath = this.getStageFilePath(projectName, stage);
     }
 
     try {
+      // Check new location first
       if (!fs.existsSync(filePath)) {
-        return null;
+        // Fall back to old location for backward compatibility (Requirements 7.5)
+        const oldFilePath = this.getOldStageFilePath(projectName, stage);
+        if (fs.existsSync(oldFilePath)) {
+          console.log(`[StageManager] Reading from legacy location: ${oldFilePath}`);
+          filePath = oldFilePath;
+        } else {
+          return null;
+        }
       }
 
       const content = await fs.promises.readFile(filePath, 'utf-8');
@@ -360,7 +429,7 @@ export class StageManager {
     completed: boolean
   ): Promise<WriteResult> {
     const filePath = this.getStageFilePath(projectName, stage);
-    const projectDir = this.getProjectDir(projectName);
+    const planningDir = this.getPlanningDir(projectName);
 
     const stageFile: StageFile = {
       stage,
@@ -374,7 +443,7 @@ export class StageManager {
     const tempPath = `${filePath}.tmp.${Date.now()}`;
 
     try {
-      await fs.promises.mkdir(projectDir, { recursive: true });
+      await fs.promises.mkdir(planningDir, { recursive: true });
       await fs.promises.writeFile(tempPath, content, 'utf-8');
       await fs.promises.rename(tempPath, filePath);
 
@@ -660,8 +729,11 @@ export class StageManager {
 
   async initializeProject(projectName: string, projectTitle?: string): Promise<void> {
     const projectDir = this.getProjectDir(projectName);
+    const planningDir = this.getPlanningDir(projectName);
 
+    // Create project directory and planning subdirectory (Requirements 4.1)
     await fs.promises.mkdir(projectDir, { recursive: true });
+    await fs.promises.mkdir(planningDir, { recursive: true });
 
     const initialState: BuildState = {
       projectName,

@@ -1122,7 +1122,7 @@ export default function App() {
           }
         }
         setBuildStep(derivedStep);
-      } else if (message.type === 'project-name-check') {
+      } else if (message.type === 'project-name-checked') {
         // Handle project name validation response (Requirements 11.2, 11.5)
         setIsCheckingProjectName(false);
         if (message.error) {
@@ -1573,7 +1573,7 @@ export default function App() {
               'You are a JSON API. Output ONLY valid JSON in a code block. Never include explanatory text.',
           });
         }
-      } else if (message.type === 'build-state-loaded') {
+      } else if (message.type === 'build-state') {
         // Handle build state loaded message (Requirements 2.3, 3.4, 6.1, 11.4)
         // This loads projectTitle and completedStages from the master file
         const { buildState } = message;
@@ -1619,7 +1619,7 @@ export default function App() {
             `[Personaut] Build state loaded: projectTitle="${buildState.projectTitle || buildState.projectName}", stages=${Object.keys(buildState.stages || {}).length}`
           );
         }
-      } else if (message.type === 'build-log-loaded') {
+      } else if (message.type === 'build-log') {
         // Handle build log loaded message (Requirements 12.3, 13.3)
         // This loads the persisted build log from file
         const { log } = message;

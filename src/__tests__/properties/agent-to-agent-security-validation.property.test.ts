@@ -68,9 +68,12 @@ describe('Property 32: Agent-to-Agent Security Validation', () => {
   const conversationIdArb = fc.string({ minLength: 10, maxLength: 50 });
 
   /**
-   * Generator for safe message content (no XSS)
+   * Generator for safe message content (no XSS, not whitespace-only)
    */
   const safeMessageArb = fc.string({ minLength: 1, maxLength: 500 }).filter((str) => {
+    // Filter out whitespace-only strings
+    if (!str.trim()) return false;
+
     // Filter out strings that might contain XSS patterns
     const xssPatterns = [
       /<script/i,

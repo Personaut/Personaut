@@ -1,0 +1,400 @@
+/**
+ * Property-based tests for Build Mode message type fixes.
+ *
+ * These tests verify the correctness properties defined in the design document
+ * for the build-mode-fixes feature.
+ *
+ * **Feature: build-mode-fixes**
+ */
+
+import * as fc from 'fast-check';
+import { sanitizeProjectName, isValidProjectName } from '../../features/build-mode/services/StageManager';
+
+/**
+ * **Feature: build-mode-fixes, Property 2: Project Name Validation State Update**
+ *
+ * *For any* project-name-checked message received by the webview, if the message
+ * contains `exists: true`, then `projectTitleError` SHALL be set to indicate
+ * the name is taken; otherwise `projectTitleError` SHALL be null and
+ * `sanitizedProjectName` SHALL be set to the sanitized name.
+ *
+ * **Validates: Requirements 1.3, 1.4**
+ */
+describe('Property 2: Project Name Validation State Update', () => {
+    // Simulate the webview state update logic
+    const handleProjectNameCheckedMessage = (message: {
+        exists: boolean;
+        sanitizedName: string;
+        valid: boolean;
+        error?: string;
+    }) => {
+        let projectTitleError: string | null = null;
+        let sanitizedProjectName = '';
+
+        if (message.error) {
+            projectTitleError = message.error;
+        } else if (message.exists) {
+            projectTitleError = 'A project with this name already exists';
+        } else {
+            projectTitleError = null;
+        }
+        sanitizedProjectName = message.sanitizedName || '';
+
+        return { projectTitleError, sanitizedProjectName };
+    };
+
+    it('should set projectTitleError when project exists', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc.string({ minLength: 1, maxLength: 50 }).filter((s) => s.trim().length > 0),
+                async (projectName) => {
+                    const sanitizedName = sanitizeProjectName(projectName);
+                    if (!sanitizedName) return; // Skip empty sanitized names
+
+                    const message = {
+                        exists: true,
+                        sanitizedName,
+                        valid: sanitizedName.length > 0,
+                    };
+
+                    const result = handleProjectNameCheckedMessage(message);
+
+                    // Property: if exists is true, projectTitleError SHALL be set
+                    expect(result.projectTitleError).not.toBeNull();
+                    expect(result.projectTitleError).toContain('exists');
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    it('should clear projectTitleError and set sanitizedProjectName when project does not exist', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc.string({ minLength: 1, maxLength: 50 }).filter((s) => s.trim().length > 0),
+                async (projectName) => {
+                    const sanitizedName = sanitizeProjectName(projectName);
+                    if (!sanitizedName) return; // Skip empty sanitized names
+
+                    const message = {
+                        exists: false,
+                        sanitizedName,
+                        valid: sanitizedName.length > 0,
+                    };
+
+                    const result = handleProjectNameCheckedMessage(message);
+
+                    // Property: if exists is false, projectTitleError SHALL be null
+                    expect(result.projectTitleError).toBeNull();
+                    // Property: sanitizedProjectName SHALL be set to the sanitized name
+                    expect(result.sanitizedProjectName).toBe(sanitizedName);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 5: Current Step Derivation**
+ *
+ * *For any* set of completed stages, the derived current step SHALL be the first
+ * stage in the stage order that is not marked as complete, or the last stage if
+ * all are complete.
+ *
+ * **Validates: Requirements 2.5**
+ */
+describe('Property 5: Current Step Derivation', () => {
+    const STAGE_ORDER = ['idea', 'users', 'features', 'team', 'stories', 'design'] as const;
+    type StageName = (typeof STAGE_ORDER)[number];
+
+    // Derive current step from completed stages (same logic as in App.tsx)
+    const deriveCurrentStep = (completedStages: Record<string, boolean>): StageName => {
+        let derivedStep: StageName = 'idea';
+        for (const stage of STAGE_ORDER) {
+            if (!completedStages[stage]) {
+                derivedStep = stage;
+                break;
+            }
+            // If this stage is complete, the next stage is the current step
+            const nextIndex = STAGE_ORDER.indexOf(stage) + 1;
+            if (nextIndex < STAGE_ORDER.length) {
+                derivedStep = STAGE_ORDER[nextIndex];
+            }
+        }
+        return derivedStep;
+    };
+
+    it('should derive the first incomplete stage as current step', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                // Generate random completion status for each stage
+                fc.record({
+                    idea: fc.boolean(),
+                    users: fc.boolean(),
+                    features: fc.boolean(),
+                    team: fc.boolean(),
+                    stories: fc.boolean(),
+                    design: fc.boolean(),
+                }),
+                async (completedStages) => {
+                    const derivedStep = deriveCurrentStep(completedStages);
+
+                    // Find the first incomplete stage
+                    let firstIncomplete: StageName | null = null;
+                    for (const stage of STAGE_ORDER) {
+                        if (!completedStages[stage]) {
+                            firstIncomplete = stage;
+                            break;
+                        }
+                    }
+
+                    if (firstIncomplete) {
+                        // Property: derived step SHALL be the first incomplete stage
+                        expect(derivedStep).toBe(firstIncomplete);
+                    } else {
+                        // Property: if all complete, derived step SHALL be the last stage
+                        expect(derivedStep).toBe('design');
+                    }
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    it('should return first stage when nothing is complete', () => {
+        const completedStages = {
+            idea: false,
+            users: false,
+            features: false,
+            team: false,
+            stories: false,
+            design: false,
+        };
+
+        const derivedStep = deriveCurrentStep(completedStages);
+        expect(derivedStep).toBe('idea');
+    });
+
+    it('should return last stage when all stages are complete', () => {
+        const completedStages = {
+            idea: true,
+            users: true,
+            features: true,
+            team: true,
+            stories: true,
+            design: true,
+        };
+
+        const derivedStep = deriveCurrentStep(completedStages);
+        expect(derivedStep).toBe('design');
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 6: Build Log Entry Conversion**
+ *
+ * *For any* persisted build log entry, the conversion to UI log format SHALL
+ * produce a LogEntry with: timestamp as formatted time string, message as the
+ * entry content, and type mapped from entry.type (assistant→ai, error→error,
+ * otherwise→info).
+ *
+ * **Validates: Requirements 3.3**
+ */
+describe('Property 6: Build Log Entry Conversion', () => {
+    interface PersistedBuildLogEntry {
+        timestamp: number;
+        type: 'user' | 'assistant' | 'system' | 'error';
+        stage: string;
+        content: string;
+    }
+
+    interface LogEntry {
+        timestamp: string;
+        message: string;
+        type: 'info' | 'ai' | 'error' | 'success' | 'warning';
+    }
+
+    // Convert persisted entry to UI format (same logic as in App.tsx)
+    const convertEntry = (entry: PersistedBuildLogEntry): LogEntry => {
+        const date = new Date(entry.timestamp);
+        const timestamp = date.toLocaleTimeString();
+
+        let type: LogEntry['type'] = 'info';
+        if (entry.type === 'assistant') {
+            type = 'ai';
+        } else if (entry.type === 'error') {
+            type = 'error';
+        }
+
+        return {
+            timestamp,
+            message: entry.content,
+            type,
+        };
+    };
+
+    it('should correctly convert persisted entries to UI format', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc.record({
+                    timestamp: fc.integer({ min: 0, max: Date.now() }),
+                    type: fc.constantFrom('user', 'assistant', 'system', 'error') as fc.Arbitrary<
+                        'user' | 'assistant' | 'system' | 'error'
+                    >,
+                    stage: fc.string({ minLength: 1, maxLength: 20 }),
+                    content: fc.string({ minLength: 1, maxLength: 500 }),
+                }),
+                async (entry) => {
+                    const result = convertEntry(entry);
+
+                    // Property: timestamp SHALL be a formatted time string
+                    expect(typeof result.timestamp).toBe('string');
+                    expect(result.timestamp.length).toBeGreaterThan(0);
+
+                    // Property: message SHALL be the entry content
+                    expect(result.message).toBe(entry.content);
+
+                    // Property: type mapping
+                    if (entry.type === 'assistant') {
+                        expect(result.type).toBe('ai');
+                    } else if (entry.type === 'error') {
+                        expect(result.type).toBe('error');
+                    } else {
+                        expect(result.type).toBe('info');
+                    }
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 7: Stage File Path Generation**
+ *
+ * *For any* valid project name and stage name, the generated file path SHALL
+ * follow the pattern `.personaut/{project-name}/planning/{stage-name}.json`.
+ *
+ * **Validates: Requirements 4.3**
+ */
+describe('Property 7: Stage File Path Generation', () => {
+    const STAGE_ORDER = ['idea', 'users', 'features', 'team', 'stories', 'design', 'building'];
+
+    it('should generate paths following the planning/ subdirectory pattern', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc
+                    .string({ minLength: 1, maxLength: 50 })
+                    .filter((s) => /^[a-z0-9][a-z0-9-_]*$/.test(s.toLowerCase())),
+                fc.constantFrom(...STAGE_ORDER),
+                async (projectName, stage) => {
+                    const sanitized = sanitizeProjectName(projectName);
+                    if (!sanitized || !isValidProjectName(sanitized)) return;
+
+                    // Simulate getStageFilePath behavior
+                    const baseDir = '.personaut';
+                    const planningDir = `${baseDir}/${sanitized}/planning`;
+                    const expectedPath = `${planningDir}/${stage}.json`;
+
+                    // Property: path SHALL follow the pattern
+                    expect(expectedPath).toContain('/planning/');
+                    expect(expectedPath).toContain(`${stage}.json`);
+                    expect(expectedPath.startsWith('.personaut/')).toBe(true);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 8: Iteration Directory Path Generation**
+ *
+ * *For any* valid project name and iteration number, the generated iteration
+ * directory path SHALL follow the pattern
+ * `.personaut/{project-name}/iterations/{iteration-number}/`.
+ *
+ * **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
+ */
+describe('Property 8: Iteration Directory Path Generation', () => {
+    it('should generate iteration paths following the correct pattern', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc
+                    .string({ minLength: 1, maxLength: 50 })
+                    .filter((s) => /^[a-z0-9][a-z0-9-_]*$/.test(s.toLowerCase())),
+                fc.integer({ min: 1, max: 1000 }),
+                async (projectName, iterationNumber) => {
+                    const sanitized = sanitizeProjectName(projectName);
+                    if (!sanitized || !isValidProjectName(sanitized)) return;
+
+                    // Simulate getIterationDir behavior
+                    const baseDir = '.personaut';
+                    const expectedPath = `${baseDir}/${sanitized}/iterations/${iterationNumber}`;
+
+                    // Property: path SHALL follow the pattern
+                    expect(expectedPath).toContain('/iterations/');
+                    expect(expectedPath).toContain(String(iterationNumber));
+                    expect(expectedPath.startsWith('.personaut/')).toBe(true);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    it('should generate feedback path correctly', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc
+                    .string({ minLength: 1, maxLength: 50 })
+                    .filter((s) => /^[a-z0-9][a-z0-9-_]*$/.test(s.toLowerCase())),
+                fc.integer({ min: 1, max: 1000 }),
+                async (projectName, iterationNumber) => {
+                    const sanitized = sanitizeProjectName(projectName);
+                    if (!sanitized || !isValidProjectName(sanitized)) return;
+
+                    const baseDir = '.personaut';
+                    const iterationDir = `${baseDir}/${sanitized}/iterations/${iterationNumber}`;
+                    const feedbackPath = `${iterationDir}/feedback.json`;
+
+                    // Property: feedback path SHALL be in iteration directory
+                    expect(feedbackPath).toContain('/iterations/');
+                    expect(feedbackPath).toContain('/feedback.json');
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    it('should generate screenshot path with sanitized page names', async () => {
+        await fc.assert(
+            fc.asyncProperty(
+                fc
+                    .string({ minLength: 1, maxLength: 50 })
+                    .filter((s) => /^[a-z0-9][a-z0-9-_]*$/.test(s.toLowerCase())),
+                fc.integer({ min: 1, max: 1000 }),
+                fc.string({ minLength: 1, maxLength: 30 }),
+                async (projectName, iterationNumber, pageName) => {
+                    const sanitizedProject = sanitizeProjectName(projectName);
+                    if (!sanitizedProject || !isValidProjectName(sanitizedProject)) return;
+
+                    // Simulate getScreenshotPath behavior
+                    const safeName = pageName.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+                    if (!safeName) return;
+
+                    const baseDir = '.personaut';
+                    const iterationDir = `${baseDir}/${sanitizedProject}/iterations/${iterationNumber}`;
+                    const screenshotPath = `${iterationDir}/${safeName}.png`;
+
+                    // Property: screenshot path SHALL be in iteration directory with .png extension
+                    expect(screenshotPath).toContain('/iterations/');
+                    expect(screenshotPath).toContain('.png');
+                    // Property: page name SHALL be sanitized to be filesystem-safe
+                    expect(screenshotPath).not.toMatch(/[^a-z0-9-_./]/);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+});

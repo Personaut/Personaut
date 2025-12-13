@@ -85,7 +85,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'get-persona', id: '' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -96,7 +96,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'get-persona', id: '999' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -126,7 +126,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'search-personas', query: '' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -165,7 +165,7 @@ describe('PersonasHandler', () => {
       );
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -180,7 +180,7 @@ describe('PersonasHandler', () => {
       );
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -214,7 +214,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'update-persona', id: '', updates: {} }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -225,7 +225,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'update-persona', id: '999', updates: {} }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -254,7 +254,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'delete-persona', id: '' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -265,7 +265,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'delete-persona', id: '999' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -296,7 +296,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'generate-persona-prompt', id: '' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -313,7 +313,7 @@ describe('PersonasHandler', () => {
         updatedAt: Date.now(),
         backstory,
       };
-      
+
       mockPersonasService.generateBackstory.mockResolvedValue(backstory);
       mockPersonasService.getPersonaById.mockResolvedValue(mockPersona);
 
@@ -338,7 +338,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'generate-persona-backstory', id: '' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -355,7 +355,7 @@ describe('PersonasHandler', () => {
         updatedAt: Date.now(),
         backstory,
       };
-      
+
       mockPersonasService.generateBackstory.mockResolvedValue(backstory);
       mockPersonasService.getPersonaById.mockResolvedValue(mockPersona);
 
@@ -377,7 +377,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'unknown-type' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });
@@ -390,7 +390,7 @@ describe('PersonasHandler', () => {
       await personasHandler.handle({ type: 'get-personas' }, mockWebview);
 
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'error',
+        type: 'persona-error',
         message: expect.any(String),
       });
     });

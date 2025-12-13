@@ -1,0 +1,186 @@
+# Implementation Plan
+
+- [ ] 1. Fix message type mismatches in webview
+  - [ ] 1.1 Update project-name-check handler to listen for project-name-checked
+    - Change message type from `project-name-check` to `project-name-checked` in App.tsx message handler
+    - Verify the handler correctly updates `projectTitleError`, `sanitizedProjectName`, and `isCheckingProjectName` states
+    - _Requirements: 1.1, 1.2_
+  - [ ] 1.2 Update build-state-loaded handler to listen for build-state
+    - Change message type from `build-state-loaded` to `build-state` in App.tsx message handler
+    - Verify the handler correctly restores `projectTitle`, `completedSteps`, and derives `buildStep`
+    - _Requirements: 2.1, 2.2_
+  - [ ] 1.3 Update build-log-loaded handler to listen for build-log
+    - Change message type from `build-log-loaded` to `build-log` in App.tsx message handler
+    - Verify the handler correctly converts persisted entries to UI log format
+    - _Requirements: 3.1, 3.2_
+  - [ ] 1.4 Write property tests for message type fixes
+    - **Property 2: Project Name Validation State Update**
+    - **Property 3: Build State Restoration - Project Title**
+    - **Property 4: Build State Restoration - Completed Stages**
+    - **Property 5: Current Step Derivation**
+    - **Property 6: Build Log Entry Conversion**
+    - **Validates: Requirements 1.3, 1.4, 2.3, 2.4, 2.5, 3.3**
+
+- [ ] 2. Checkpoint - Verify message type fixes work
+  - Ensure all tests pass, ask the user if questions arise.
+  - Manually test: enter project title and verify "Checking" completes
+
+- [ ] 3. Update StageManager for new file structure
+  - [ ] 3.1 Add getPlanningDir method
+    - Returns `.personaut/{projectName}/planning`
+    - _Requirements: 4.1_
+  - [ ] 3.2 Update getStageFilePath to use planning/ subdirectory
+    - Modify path generation to return `.personaut/{projectName}/planning/{stage}.json`
+    - Remove special case for 'idea' stage (was using `{projectName}.json`)
+    - _Requirements: 4.3_
+  - [ ] 3.3 Update initializeProject to create planning/ directory
+    - Create planning/ subdirectory during project initialization
+    - Update build-state.json paths to use new structure
+    - _Requirements: 4.1, 4.2_
+  - [ ] 3.4 Add backward compatibility for reading old file locations
+    - When reading stage files, check new location first, then fall back to old location
+    - Prioritize new location for unmigrated projects
+    - _Requirements: 4.4, 7.5_
+  - [ ] 3.5 Write property test for stage file path generation
+    - **Property 7: Stage File Path Generation**
+    - **Validates: Requirements 4.3**
+
+- [ ] 4. Add migration support for existing projects
+  - [ ] 4.1 Add detectOldStructure method to StageManager
+    - Check for `{projectName}.json` or `{stage}.stage.json` in project root
+    - Return boolean indicating if migration is needed
+    - _Requirements: 7.1_
+  - [ ] 4.2 Add createMigrationBackup method
+    - Create timestamped backup directory `.backup-{timestamp}/`
+    - Copy all existing stage files to backup
+    - _Requirements: 7.2_
+  - [ ] 4.3 Add migrateProjectStructure method
+    - Create planning/ directory
+    - Move stage files with new naming convention
+    - Update build-state.json paths
+    - _Requirements: 7.1, 7.4_
+  - [ ] 4.4 Add restoreFromBackup method
+    - Restore files from backup directory on migration failure
+    - Log error details for debugging
+    - _Requirements: 7.3_
+  - [ ] 4.5 Add migrateIfNeeded method (orchestrator)
+    - Detect old structure, backup, migrate, handle errors with rollback
+    - Called during project load if old structure detected
+    - _Requirements: 7.1, 7.2, 7.3, 7.4_
+  - [ ] 4.6 Write property tests for migration
+    - **Property 10: Migration Backup Integrity**
+    - **Property 11: Migration Path Update**
+    - **Validates: Requirements 7.2, 7.3, 7.4**
+
+- [ ] 5. Checkpoint - Verify file structure changes work
+  - Ensure all tests pass, ask the user if questions arise.
+  - Test creating new project and verify planning/ structure
+  - Test loading existing project and verify migration
+
+- [ ] 6. Add iteration data management to StageManager
+  - [ ] 6.1 Add getIterationDir method
+    - Returns `.personaut/{projectName}/iterations/{iterationNumber}`
+    - _Requirements: 5.1_
+  - [ ] 6.2 Add getFeedbackPath method
+    - Returns `.personaut/{projectName}/iterations/{iterationNumber}/feedback.json`
+    - _Requirements: 5.2_
+  - [ ] 6.3 Add getConsolidatedFeedbackPath method
+    - Returns `.personaut/{projectName}/iterations/{iterationNumber}/consolidated-feedback.md`
+    - _Requirements: 5.3_
+  - [ ] 6.4 Add getScreenshotPath method
+    - Returns `.personaut/{projectName}/iterations/{iterationNumber}/{pageName}.png`
+    - Sanitize pageName to be filesystem-safe
+    - _Requirements: 5.4_
+  - [ ] 6.5 Add saveIterationFeedback method
+    - Create iteration directory if not exists
+    - Write feedback array to feedback.json
+    - _Requirements: 5.2_
+  - [ ] 6.6 Add saveConsolidatedFeedback method
+    - Write markdown content to consolidated-feedback.md
+    - _Requirements: 5.3_
+  - [ ] 6.7 Add saveScreenshot method
+    - Write buffer data to {pageName}.png
+    - _Requirements: 5.4_
+  - [ ] 6.8 Add loadIterationData method
+    - Read feedback.json, consolidated-feedback.md, and list screenshots
+    - Return IterationData object or null if not found
+    - _Requirements: 5.5_
+  - [ ] 6.9 Write property test for iteration path generation
+    - **Property 8: Iteration Directory Path Generation**
+    - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
+
+- [ ] 7. Update BuildModeHandler for iteration operations
+  - [ ] 7.1 Refactor BuildModeHandler to use StageManager directly
+    - Update constructor to store stageManager reference (currently unused `_stageManager`)
+    - Use stageManager for iteration operations
+    - _Requirements: 5.2, 5.3, 5.4, 5.5_
+  - [ ] 7.2 Add save-iteration-feedback message handler
+    - Validate projectName and iterationNumber
+    - Call stageManager.saveIterationFeedback
+    - Send feedback-saved response
+    - _Requirements: 5.2_
+  - [ ] 7.3 Add save-consolidated-feedback message handler
+    - Validate projectName and iterationNumber
+    - Call stageManager.saveConsolidatedFeedback
+    - Send consolidated-feedback-saved response
+    - _Requirements: 5.3_
+  - [ ] 7.4 Add save-screenshot message handler
+    - Validate projectName, iterationNumber, and pageName
+    - Call stageManager.saveScreenshot
+    - Send screenshot-saved response
+    - _Requirements: 5.4_
+  - [ ] 7.5 Add load-iteration-data message handler
+    - Validate projectName and iterationNumber
+    - Call stageManager.loadIterationData
+    - Send iteration-data-loaded response
+    - _Requirements: 5.5_
+
+- [ ] 8. Update webview to use iteration data handlers
+  - [ ] 8.1 Add message handlers for iteration responses
+    - Handle iteration-data-loaded, feedback-saved, consolidated-feedback-saved, screenshot-saved messages
+    - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+  - [ ] 8.2 Update iteration state saving to use new handlers
+    - Replace in-memory storage with file-based persistence
+    - Call save-iteration-feedback when feedback is collected
+    - Call save-consolidated-feedback when feedback is consolidated
+    - _Requirements: 5.2, 5.3_
+  - [ ] 8.3 Update screenshot capture to save to iteration directory
+    - Call save-screenshot handler after capturing screenshot
+    - _Requirements: 5.4_
+
+- [ ] 9. Checkpoint - Verify iteration data management works
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [ ] 10. Verify session state preservation
+  - [ ] 10.1 Verify vscode.setState includes required fields
+    - Ensure projectName, projectTitle, buildData are always included in state
+    - _Requirements: 6.1_
+  - [ ] 10.2 Verify session-invalid handler preserves project state
+    - Ensure projectName, projectTitle, buildData are NOT reset on session-invalid
+    - Verify state restoration from disk is triggered
+    - _Requirements: 6.4, 6.5_
+  - [ ] 10.3 Write property test for session state preservation
+    - **Property 9: Session State Preservation**
+    - **Validates: Requirements 6.1, 6.5**
+
+- [ ] 11. Write end-to-end integration test
+  - [ ] 11.1 Create integration test for complete build flow
+    - Test project creation with title validation
+    - Test .personaut folder and planning/ structure creation
+    - Test stage file saving and loading
+    - _Requirements: 8.1, 8.2_
+  - [ ] 11.2 Create integration test for state restoration
+    - Simulate session invalidation
+    - Verify project data is correctly loaded from disk
+    - Verify UI state matches persisted state
+    - _Requirements: 8.3_
+  - [ ] 11.3 Create integration test for iteration data
+    - Test feedback saving and loading
+    - Test consolidated feedback saving and loading
+    - Test screenshot saving and loading
+    - _Requirements: 8.4_
+
+- [ ] 12. Final Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+  - Run full test suite including integration tests
+  - Verify no regressions in existing functionality

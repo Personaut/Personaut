@@ -1,9 +1,9 @@
 {
-  "name": "personaut-extension",
+  "name": "personaut",
   "publisher": "personaut",
   "displayName": "Personaut",
   "description": "Personaut AI Coding Assistant",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "Apache-2.0",
   "icon": "media/assets/personaut-logo.png",
   "repository": {
