@@ -1,0 +1,24 @@
+name: Build and Test
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run vscode:prepublish
+      - run: |
+          /usr/bin/Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          export DISPLAY=':99.0'
+          npm test
