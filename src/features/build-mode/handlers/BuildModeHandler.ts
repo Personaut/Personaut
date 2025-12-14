@@ -158,6 +158,13 @@ export class BuildModeHandler implements IFeatureHandler {
         case 'regenerate-single-story':
           await this.handleRegenerateSingleStory(message, webview);
           break;
+        // Design generation handlers (Task 25)
+        case 'generate-design':
+          await this.handleGenerateDesign(message, webview);
+          break;
+        case 'regenerate-flows':
+          await this.handleRegenerateFlows(message, webview);
+          break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
       }
@@ -1282,6 +1289,216 @@ Generate a single improved user story with acceptance criteria and clarifying qu
         type: 'story-regeneration-error',
         projectName: message.projectName,
         storyId: message.storyId,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  // ==================== Design Generation Handlers (Task 25) ====================
+
+  /**
+   * System prompt for design generation.
+   */
+  private readonly DESIGN_PROMPT = `You are a UX expert generating design specifications.
+Based on the user stories and selected framework, generate:
+1. User flows showing page navigation paths
+2. Key screens/pages with detailed specifications
+
+Output as JSON with structure:
+{
+  "userFlows": [{
+    "id": "flow-1",
+    "name": "Flow Name",
+    "description": "What this flow achieves",
+    "steps": ["Page A", "Page B", "Page C"]
+  }],
+  "pages": [{
+    "id": "page-1",
+    "name": "Page Name",
+    "purpose": "What the user achieves here",
+    "uiElements": ["element1", "element2"],
+    "userActions": ["action1", "action2"]
+  }]
+}`;
+
+  /**
+   * Handle generate design request.
+   * Validates: Requirements 14.1
+   */
+  private async handleGenerateDesign(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!message.projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(message.projectName);
+
+    const userStories = message.userStories || [];
+    const framework = message.framework || 'React';
+
+    console.log('[BuildModeHandler] Generating design:', {
+      projectName: message.projectName,
+      storyCount: userStories.length,
+      framework,
+    });
+
+    webview.postMessage({
+      type: 'design-generation-started',
+      projectName: message.projectName,
+    });
+
+    try {
+      const storiesList = userStories
+        .map((s: any) => `- ${s.title}: ${s.description}`)
+        .join('\n');
+
+      const prompt = `Generate design for ${framework} application:
+
+USER STORIES:
+${storiesList || 'Standard application workflows'}
+
+FRAMEWORK: ${framework}
+
+Generate user flows and page specifications optimized for ${framework}.`;
+
+      const generatedContent = await this.buildModeService.generateStageContent(
+        message.projectName,
+        'design',
+        `${this.DESIGN_PROMPT}\n\n${prompt}`
+      );
+
+      let design: any = { userFlows: [], pages: [] };
+      try {
+        const jsonMatch = generatedContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          design = JSON.parse(jsonMatch[0]);
+        }
+      } catch {
+        design = { userFlows: [], pages: [] };
+      }
+
+      // Normalize flows
+      design.userFlows = (design.userFlows || []).map((flow: any, i: number) => ({
+        id: flow.id || `flow-${i + 1}-${Date.now()}`,
+        name: flow.name || `User Flow ${i + 1}`,
+        description: flow.description || '',
+        steps: Array.isArray(flow.steps) ? flow.steps : [],
+      }));
+
+      // Normalize pages
+      design.pages = (design.pages || []).map((page: any, i: number) => ({
+        id: page.id || `page-${i + 1}-${Date.now()}`,
+        name: page.name || `Page ${i + 1}`,
+        purpose: page.purpose || '',
+        uiElements: Array.isArray(page.uiElements) ? page.uiElements : [],
+        userActions: Array.isArray(page.userActions) ? page.userActions : [],
+      }));
+
+      // Save to stage file
+      await this.buildModeService.saveStage(
+        message.projectName,
+        'design',
+        { ...design, framework },
+        false
+      );
+
+      webview.postMessage({
+        type: 'design-generated',
+        projectName: message.projectName,
+        userFlows: design.userFlows,
+        pages: design.pages,
+        framework,
+      });
+
+      console.log('[BuildModeHandler] Design generated:', {
+        projectName: message.projectName,
+        flowCount: design.userFlows.length,
+        pageCount: design.pages.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to generate design:', error);
+
+      webview.postMessage({
+        type: 'design-generation-error',
+        projectName: message.projectName,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle regenerate flows request.
+   * Validates: Requirements 14.7
+   */
+  private async handleRegenerateFlows(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!message.projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(message.projectName);
+
+    console.log('[BuildModeHandler] Regenerating flows:', {
+      projectName: message.projectName,
+    });
+
+    try {
+      const userStories = message.userStories || [];
+      const storiesList = userStories
+        .map((s: any) => `- ${s.title}: ${s.description}`)
+        .join('\n');
+
+      const prompt = `Regenerate user flows with improved navigation paths:
+
+USER STORIES:
+${storiesList || 'Standard application workflows'}
+
+Generate 3-5 clear user flows showing how users navigate through the application.`;
+
+      const generatedContent = await this.buildModeService.generateStageContent(
+        message.projectName,
+        'design',
+        `${this.DESIGN_PROMPT}\n\n${prompt}`
+      );
+
+      let flows: any[] = [];
+      try {
+        const jsonMatch = generatedContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          flows = parsed.userFlows || [];
+        }
+      } catch {
+        flows = [];
+      }
+
+      flows = flows.map((flow: any, i: number) => ({
+        id: flow.id || `flow-${i + 1}-${Date.now()}`,
+        name: flow.name || `User Flow ${i + 1}`,
+        description: flow.description || '',
+        steps: Array.isArray(flow.steps) ? flow.steps : [],
+      }));
+
+      webview.postMessage({
+        type: 'flows-updated',
+        projectName: message.projectName,
+        userFlows: flows,
+      });
+
+      console.log('[BuildModeHandler] Flows regenerated:', {
+        projectName: message.projectName,
+        flowCount: flows.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to regenerate flows:', error);
+
+      webview.postMessage({
+        type: 'flows-regeneration-error',
+        projectName: message.projectName,
         error: this.errorSanitizer.sanitize(error).userMessage,
       });
     }

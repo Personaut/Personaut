@@ -1737,6 +1737,42 @@ export default function App() {
         // Handle individual story regeneration error
         console.error(`[Personaut] Story regeneration error:`, message.error);
         addBuildLog(`Story regeneration failed: ${message.error}`, 'error');
+      } else if (message.type === 'design-generated') {
+        // Handle design generated (Task 25)
+        console.log(`[Personaut] Design generated:`, {
+          flows: message.userFlows?.length,
+          pages: message.pages?.length,
+        });
+        setDesignLoading(false);
+        if (message.userFlows) {
+          setUserFlows(message.userFlows);
+        }
+        if (message.pages) {
+          setGeneratedScreens(message.pages);
+        }
+        if (message.framework) {
+          setSelectedFramework(message.framework);
+        }
+        addBuildLog(
+          `Generated ${message.userFlows?.length || 0} flows and ${message.pages?.length || 0} pages`,
+          'success'
+        );
+      } else if (message.type === 'flows-updated') {
+        // Handle flows regenerated
+        console.log(`[Personaut] Flows updated:`, message.userFlows?.length);
+        if (message.userFlows) {
+          setUserFlows(message.userFlows);
+          addBuildLog(`Regenerated ${message.userFlows.length} user flows`, 'success');
+        }
+      } else if (message.type === 'design-generation-error') {
+        // Handle design generation error
+        console.error(`[Personaut] Design generation error:`, message.error);
+        setDesignLoading(false);
+        addBuildLog(`Design generation failed: ${message.error}`, 'error');
+      } else if (message.type === 'flows-regeneration-error') {
+        // Handle flows regeneration error
+        console.error(`[Personaut] Flows regeneration error:`, message.error);
+        addBuildLog(`Flows regeneration failed: ${message.error}`, 'error');
       }
     };
 

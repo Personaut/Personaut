@@ -529,7 +529,7 @@
     - Generate user flows showing page navigation
     - Generate detailed page specifications
     - _Requirements: 14.1, 14.2, 14.3_
-  - [ ] 25.2 Add generate-design handler to BuildModeHandler
+  - [x] 25.2 Add generate-design handler to BuildModeHandler
     - Accept user stories and framework from webview
     - Invoke UX agent to generate design
     - Parse user flows and pages
@@ -551,7 +551,7 @@
     - Display pages in sequence with arrows
     - Make flows editable (add/remove pages)
     - _Requirements: 14.2, 14.5_
-  - [ ] 25.5 Add regenerate-flows handler
+  - [x] 25.5 Add regenerate-flows handler
     - Accept current user stories from webview
     - Invoke UX agent to regenerate flows
     - Send flows-updated response
