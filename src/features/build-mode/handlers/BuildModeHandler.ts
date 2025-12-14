@@ -1138,13 +1138,15 @@ Generate one user story per feature, considering the perspectives of all persona
         }
       } catch {
         // If parsing fails, create a simple story from the text
-        stories = [{
-          id: `story-${Date.now()}`,
-          title: 'Generated Story',
-          description: generatedContent,
-          acceptanceCriteria: [],
-          clarifyingQuestions: [],
-        }];
+        stories = [
+          {
+            id: `story-${Date.now()}`,
+            title: 'Generated Story',
+            description: generatedContent,
+            acceptanceCriteria: [],
+            clarifyingQuestions: [],
+          },
+        ];
       }
 
       // Ensure each story has required fields
