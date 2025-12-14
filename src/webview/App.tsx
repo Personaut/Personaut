@@ -322,7 +322,11 @@ export default function App() {
     title: string;
     description: string;
     requirements: string[];
+    acceptanceCriteria?: string[];
     clarifyingQuestions: { question: string; answer: string }[];
+    answers?: Record<string, string>;
+    featureId?: string | null;
+    personaId?: string | null;
     expanded: boolean;
   }
   const [userStories, setUserStories] = useState<UserStory[]>(savedState?.userStories || []);

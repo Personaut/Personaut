@@ -1154,15 +1154,20 @@ Generate one user story per feature, considering the perspectives of all persona
         id: story.id || `story-${index + 1}-${Date.now()}`,
         title: story.title || `User Story ${index + 1}`,
         description: story.description || '',
+        requirements: Array.isArray(story.requirements) ? story.requirements : [],
         acceptanceCriteria: Array.isArray(story.acceptanceCriteria)
           ? story.acceptanceCriteria
           : [],
+        // Normalize clarifyingQuestions to {question, answer} format
         clarifyingQuestions: Array.isArray(story.clarifyingQuestions)
-          ? story.clarifyingQuestions
+          ? story.clarifyingQuestions.map((q: any) =>
+            typeof q === 'string' ? { question: q, answer: '' } : q
+          )
           : [],
         featureId: story.featureId || null,
         personaId: story.personaId || null,
-        answers: {},
+        answers: story.answers || {},
+        expanded: false,
       }));
 
       // Save to stage file

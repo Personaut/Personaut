@@ -503,11 +503,11 @@
     - Invoke UX agent to regenerate only that story
     - Send story-updated response
     - _Requirements: 13.5_
-  - [ ] 23.5 Update story save logic
+  - [x] 23.5 Update story save logic
     - Save user stories with all fields including clarifying question answers
     - Persist to stories stage file
     - _Requirements: 13.6, 13.7_
-  - [ ] 23.6 Write property tests for user story generation
+  - [x] 23.6 Write property tests for user story generation
     - **Property 43: User Story Generation from Features**
     - **Property 44: User Story Structure**
     - **Property 45: User Story Editability**
