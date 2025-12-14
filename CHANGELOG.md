@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Handler sends `build-log` but webview was listening for `build-log-loaded`
 - Project state now correctly persists and restores when returning to a project
 - Build logs now properly load and display when returning to a project
+- **Data Persistence**: `surveyResponses` and `userFlows` now correctly restore when loading stage files (fixed state hydration logic)
+- Fixed `setPages` error in Design stage loading
+- Fixed duplicate switch cases in `BuildModeHandler`
+- Fixed syntax errors in `BuildModeService`
 
 ### Added
 - New organized file structure for project data:
@@ -21,8 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `.personaut/{project-name}/iterations/` - Iteration feedback and screenshots
 - Migration support for existing projects to new folder structure
 - Iteration data management (feedback, consolidated feedback, screenshots)
+- **Feature Generation**: Implemented multi-agent interview workflow (Persona Agents + Consolidator)
+- **User Flows**: Added visual rendering of generated User Flows in Design stage
 - Backward compatibility: reads from both old and new file locations
 - Property-based tests for message type fixes and build state restoration
+- Progress streaming updates during consolidated feature interviews
 
 ### Changed
 - Stage files now stored in `planning/` subdirectory instead of project root

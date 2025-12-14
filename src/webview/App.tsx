@@ -1414,13 +1414,8 @@ export default function App() {
               if (stageData.features && Array.isArray(stageData.features)) {
                 setGeneratedFeatures(
                   stageData.features.map((f: any, idx: number) => ({
+                    ...f, // Preserve all persisted fields (including surveyResponses)
                     id: f.id || String(idx + 1),
-                    name: f.name || 'Unnamed Feature',
-                    description: f.description || '',
-                    score: f.score || 5,
-                    frequency: f.frequency || 'Weekly',
-                    priority: f.priority || 'Should-Have',
-                    personas: f.personas || [],
                   }))
                 );
               }
@@ -1442,10 +1437,8 @@ export default function App() {
               if (stageData.stories && Array.isArray(stageData.stories)) {
                 setUserStories(
                   stageData.stories.map((s: any, idx: number) => ({
+                    ...s, // Preserve all persisted fields
                     id: s.id || String(idx + 1),
-                    title: s.title || 'Untitled Story',
-                    description: s.description || '',
-                    requirements: s.requirements || [],
                     clarifyingQuestions: (s.clarifyingQuestions || []).map((q: any) =>
                       typeof q === 'string' ? { question: q, answer: '' } : q
                     ),
@@ -1456,7 +1449,18 @@ export default function App() {
               break;
 
             case 'design':
-              // Load design data
+              // Load design data (Task 25 persistence)
+              if (stageData.userFlows && Array.isArray(stageData.userFlows)) {
+                setUserFlows(stageData.userFlows);
+              }
+              if (stageData.pages && Array.isArray(stageData.pages)) {
+                setGeneratedScreens(stageData.pages);
+              }
+              if (stageData.framework) {
+                setSelectedFramework(stageData.framework);
+              }
+
+              // Load legacy design data if present
               if (stageData.design !== undefined) {
                 setBuildData((prev) => ({
                   ...prev,
@@ -1645,6 +1649,20 @@ export default function App() {
       } else if (message.type === 'build-log-error') {
         // Build log operation error
         console.error(`[Personaut] Build log error:`, message.error);
+      } else if (message.type === 'survey-progress-update') {
+        // Task 14: Show progress of interviews
+        if (message.step) {
+          addBuildLog(message.step, 'info');
+        }
+      } else if (message.type === 'features-generated') {
+        // Task 14: Handle completion of feature generation
+        setFeaturesLoading(false);
+        if (message.data) {
+          setGeneratedFeatures(message.data);
+        }
+        if (message.surveyComplete) {
+          addBuildLog('Feature interviews completed! Generated feature feasibility report.', 'success');
+        }
       } else if (message.type === 'iteration-data-loaded') {
         // Handle iteration data loaded from file (Task 8.1)
         console.log(`[Personaut] Iteration data loaded for project ${message.projectName}, iteration ${message.iterationNumber}`);
@@ -4264,6 +4282,31 @@ Next steps:
                         </select>
                       </div>
 
+                      {/* User Flows */}
+                      {userFlows.length > 0 && (
+                        <div className="space-y-3 mt-4">
+                          <label className="text-xs font-bold text-muted uppercase tracking-wider">
+                            User Flows
+                          </label>
+                          <div className="space-y-2">
+                            {userFlows.map((flow) => (
+                              <div key={flow.id} className="p-3 bg-secondary/30 rounded-lg border border-border">
+                                <div className="font-medium text-sm text-foreground mb-1">{flow.name}</div>
+                                <div className="text-xs text-muted mb-2">{flow.description}</div>
+                                <div className="flex flex-wrap items-center gap-y-2">
+                                  {flow.steps.map((step, idx) => (
+                                    <div key={idx} className="flex items-center">
+                                      <span className="px-2 py-1 bg-primary rounded text-[10px] border border-border text-foreground">{step}</span>
+                                      {idx < flow.steps.length - 1 && <span className="mx-1 text-muted">→</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Key Screens */}
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
@@ -5312,41 +5355,34 @@ Return a JSON block with the generated personas in this exact format:
                           // Generate mode - interview personas and populate features
                           setFeaturesLoading(true);
 
-                          // Build persona list from either selected personas or generated personas
-                          let personaList: string;
+                          // Determine target personas
+                          let targetPersonas: any[] = [];
                           if (usersMode === 'personas' && selectedBuildPersonaIds.length > 0) {
-                            // Using selected personas from the user base
-                            personaList = selectedBuildPersonaIds
-                              .map((id) => {
-                                const p = buildPersonas.find((per) => per.id === id);
-                                return p
-                                  ? `- ${p.name}: ${p.backstory ||
-                                  Object.entries(p.attributes || {})
-                                    .map(([k, v]) => `${k}: ${v}`)
-                                    .join(', ')
-                                  }`
-                                  : '';
-                              })
-                              .filter(Boolean)
-                              .join('\n');
+                            targetPersonas = selectedBuildPersonaIds
+                              .map((id) => buildPersonas.find((p) => p.id === id))
+                              .filter(Boolean);
                           } else if (generatedPersonas.length > 0) {
-                            // Using generated personas from the previous step
-                            personaList = generatedPersonas
-                              .map(
-                                (p) =>
-                                  `- ${p.name} (${p.occupation || 'User'}): ${p.backstory?.substring(0, 150) || 'Target user'}...`
-                              )
-                              .join('\n');
+                            targetPersonas = generatedPersonas;
+                          }
+
+                          if (targetPersonas.length > 0) {
+                            // Task 14: Use Multi-Agent Interview Workflow
+                            addBuildLog(`Starting user interviews with ${targetPersonas.length} personas...`, 'info');
+                            vscode.postMessage({
+                              type: 'generate-features-from-interviews',
+                              projectName,
+                              idea: buildData.idea,
+                              personas: targetPersonas
+                            });
                           } else {
-                            // Fallback - use demographics info
-                            const demoStr = Object.entries(buildData.users.demographics)
+                            // Fallback to Generic Prompt if no structured personas (e.g. only demographics text)
+                            const demoStr = Object.entries(buildData.users.demographics || {})
                               .filter(([_, v]) => v)
                               .map(([k, v]) => `${k}: ${v}`)
                               .join(', ');
-                            personaList = `Target demographics: ${demoStr || 'General users'}`;
-                          }
+                            const personaList = `Target demographics: ${demoStr || 'General users'}`;
 
-                          const featurePrompt = `
+                            const featurePrompt = `
 Generate a Feature Feasibility Report by simulating user interviews.
 
 PRODUCT IDEA: ${buildData.idea}
@@ -5358,7 +5394,7 @@ YOUR TASK:
 1. Act as a UX Researcher interviewing EVERY user above.
 2. Ask each user for their TOP 5 feature requests.
 3. Ask each user to rate the current idea (0-10) as it stands.
-4. Ask each user how their rating would change WITH the proposed features.
+4. Ask each user to rate the idea WITH the proposed features.
 5. Consolidate the findings into a list of 5-7 High-Impact Features.
 
 OUTPUT FORMAT: Return ONLY a JSON code block with this exact structure:
@@ -5384,15 +5420,15 @@ RULES:
 - frequency: Usage Frequency (Daily/Weekly/Monthly).
 - description: Include the "with/without" analysis here.`;
 
-                          // Use streaming content generation (Requirements 2.1, 2.2, 2.3)
-                          vscode.postMessage({
-                            type: 'generate-content-streaming',
-                            projectName,
-                            stage: 'features',
-                            prompt: featurePrompt,
-                            systemPrompt:
-                              'You are a JSON API. Output ONLY valid JSON in a code block. Never include explanatory text.',
-                          });
+                            vscode.postMessage({
+                              type: 'generate-content-streaming',
+                              projectName,
+                              stage: 'features',
+                              prompt: featurePrompt,
+                              systemPrompt:
+                                'You are a JSON API. Output ONLY valid JSON in a code block. Never include explanatory text.',
+                            });
+                          }
 
                           // Fallback timeout (streaming will send completion update)
                           setTimeout(() => {

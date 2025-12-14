@@ -8,21 +8,13 @@ This directory contains the Personaut extension with a feature-based architectur
 
 ## 🎯 Quick Start
 
-### Get the Extension Working Now
+### Installation
 
-The backend is complete and secure, but the UI needs to be copied from the old implementation:
-
-```bash
-# From project root
-cp src/webview/App.tsx personaut/src/webview/App.tsx
-cp src/webview/UserBaseTab.tsx personaut/src/webview/
-cp src/webview/SettingsTab.tsx personaut/src/webview/
-cp src/webview/FeedbackTab.tsx personaut/src/webview/
-cp src/webview/BuildLogs.tsx personaut/src/webview/
-
-# Rebuild
-npm run compile
-```
+1.  Download the `personaut-extension-0.1.2.vsix` file.
+2.  Open VS Code.
+3.  Install the extension: Press `Cmd+Shift+P` (or `Ctrl+Shift+P`) and run `Extensions: Install from VSIX...`
+4.  Select the VSIX file.
+5.  Open the Personaut sidebar to start planning your next project!
 
 **See:** [Setup Guide](docs/getting-started/setup.mdx) for detailed instructions.
 
@@ -30,9 +22,10 @@ npm run compile
 
 - ✅ **Backend:** Complete and secure (all tests passing)
 - ✅ **Agent Management:** Centralized lifecycle management with AgentManager
-- ✅ **Conversation Persistence:** Automatic save with retry logic
-- ✅ **Multi-Agent Support:** Agent-to-agent communication with capability discovery
-- ⚠️ **Frontend:** Needs UI implementation (quick fix available)
+- ✅ **Build Mode:** Core Planning Phase (Idea → Design) fully implemented with multi-agent workflows
+- ✅ **Frontend:** Functional React UI with Tailwind CSS
+- ✅ **Data Persistence:** Robust saving/loading of all stage data
+- ⚠️ **Research/Building:** Advanced workflows (VoltAgent, Dev Server) are in development
 
 **See:** [Roadmap](docs/roadmap.mdx) for status.
 

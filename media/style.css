@@ -1160,6 +1160,10 @@ video {
   gap: 1rem;
 }
 
+.gap-y-2 {
+  row-gap: 0.5rem;
+}
+
 .space-y-1 > :not([hidden]) ~ :not([hidden]) {
   --tw-space-y-reverse: 0;
   margin-top: calc(0.25rem * calc(1 - var(--tw-space-y-reverse)));

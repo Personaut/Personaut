@@ -1,16 +1,22 @@
-# Build Mode
+# Build Mode (Planning Phase)
 
-An agentic mode where Personaut can actively write code to implement features.
+An agentic workflow where Personaut guides you through the product planning life cycle.
 
 ## Overview
-Build Mode transforms Personaut from a feedback tool into an active coding assistant. It uses advanced agentic capabilities to understand requirements, plan tasks, and execute file edits.
+Build Mode transforms Personaut into a Product Manager and UX Designer. It uses multi-agent workflows to:
+1.  **Refine Ideas**: Analyze and improve your initial product concept.
+2.  **Define Personas**: Generate detailed user personas based on demographics.
+3.  **Interview Users**: Simulate interviews with AI agents acting as your users to gather feature requests.
+4.  **Create Stories**: Generate prioritized user stories with acceptance criteria.
+5.  **Design**: Produce application flows and key screen specifications.
 
 ## Usage
 1.  Switch to **Build** mode in the sidebar.
-2.  Describe the feature you want to build (e.g., "Add a dark mode toggle to the header").
-3.  The agent will:
-    - Analyze the codebase.
-    - Propose a plan.
-    - Break it down into steps.
-    - Execute commands and file edits.
-4.  You can review each step or allow the agent to proceed automatically.
+2.  Start a new project or load an existing one.
+3.  Progress through the 5 stages:
+    - **Idea**: Define the core concept.
+    - **Users**: Generate and select your target audience.
+    - **Features**: Simulate interviews to discover high-impact features.
+    - **Stories**: Translate features into technical user stories.
+    - **Design**: Visualize user flows and screen layouts.
+4.  All data is persisted in the `.personaut/{project}/planning/` directory.

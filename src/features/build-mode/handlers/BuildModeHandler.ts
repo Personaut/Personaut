@@ -165,6 +165,9 @@ export class BuildModeHandler implements IFeatureHandler {
         case 'regenerate-flows':
           await this.handleRegenerateFlows(message, webview);
           break;
+        case 'generate-features-from-interviews':
+          await this.handleGenerateFeaturesFromInterviews(message, webview);
+          break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
       }
@@ -1500,6 +1503,60 @@ Generate 3-5 clear user flows showing how users navigate through the application
         type: 'flows-regeneration-error',
         projectName: message.projectName,
         error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle feature generation from interviews (Task 14)
+   */
+  private async handleGenerateFeaturesFromInterviews(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, idea, personas } = message;
+
+    if (!projectName || !idea || !personas || !personas.length) {
+      throw new Error('Missing required data for feature generation');
+    }
+
+    webview.postMessage({
+      type: 'stream-update',
+      stage: 'features',
+      updateType: 'generation-started',
+      data: { projectName, stage: 'features' },
+      complete: false,
+    });
+
+    try {
+      const result = await this.buildModeService.generateFeaturesFromInterviews(
+        projectName,
+        idea,
+        personas,
+        (progressParams: string) => {
+          try {
+            const p = JSON.parse(progressParams);
+            webview.postMessage({
+              type: 'survey-progress-update',
+              step: p.step
+            });
+          } catch {
+            // ignore format errors
+          }
+        }
+      );
+
+      // Save
+      await this.buildModeService.saveStage(projectName, 'features', result, false);
+
+      webview.postMessage({
+        type: 'features-generated',
+        data: result.features, // send features array
+        surveyComplete: true
+      });
+
+    } catch (error: any) {
+      console.error('Feature generation failed', error);
+      webview.postMessage({
+        type: 'generation-error',
+        error: error.message
       });
     }
   }
