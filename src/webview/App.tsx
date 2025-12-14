@@ -1676,6 +1676,7 @@ export default function App() {
       } else if (message.type === 'personas-generated') {
         // Handle personas generated from demographics (Task 12.3)
         console.log(`[Personaut] Personas generated: ${message.count} personas`);
+        setUsersLoading(false); // Stop the loading spinner
         if (message.personas) {
           const newPersonas = message.personas.map((p: any) => ({
             id: p.id,
@@ -1708,6 +1709,7 @@ export default function App() {
       } else if (message.type === 'personas-generation-error') {
         // Handle persona generation error
         console.error(`[Personaut] Persona generation error:`, message.error);
+        setUsersLoading(false); // Stop the loading spinner on error
         addBuildLog(`Persona generation failed: ${message.error}`, 'error');
       } else if (message.type === 'persona-regeneration-error') {
         // Handle individual persona regeneration error
