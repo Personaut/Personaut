@@ -313,4 +313,223 @@ describe('Build Mode Integration Tests', () => {
             expect(hasOldStructure).toBe(false);
         });
     });
+
+    /**
+     * Task 28.4: Integration test for feature generation
+     */
+    describe('Feature Generation Flow', () => {
+        it('should save and load generated features', async () => {
+            const projectName = 'feature-test';
+
+            // Initialize project
+            await stageManager.initializeProject(projectName);
+
+            // Save features
+            const features = [
+                {
+                    id: '1',
+                    name: 'User Authentication',
+                    description: 'Allow users to log in',
+                    score: 8,
+                    priority: 'Must-Have',
+                },
+                {
+                    id: '2',
+                    name: 'Dashboard',
+                    description: 'Overview of user data',
+                    score: 6,
+                    priority: 'Should-Have',
+                },
+            ];
+            await stageManager.writeStageFile(
+                projectName,
+                'features',
+                { features },
+                true
+            );
+
+            // Load features
+            const file = await stageManager.readStageFile(projectName, 'features');
+            expect(file?.data.features).toEqual(features);
+            expect(file?.data.features).toHaveLength(2);
+        });
+
+        it('should persist feature metadata with survey data', async () => {
+            const projectName = 'feature-survey-test';
+
+            await stageManager.initializeProject(projectName);
+
+            // Save features with survey metadata
+            const features = [
+                {
+                    id: '1',
+                    name: 'Search',
+                    surveyResponses: [
+                        { personaId: 'p1', score: 9, feedback: 'Essential!' },
+                        { personaId: 'p2', score: 7, feedback: 'Nice to have' },
+                    ],
+                },
+            ];
+            await stageManager.writeStageFile(
+                projectName,
+                'features',
+                { features, surveyComplete: true },
+                true
+            );
+
+            const file = await stageManager.readStageFile(projectName, 'features');
+            expect(file?.data.surveyComplete).toBe(true);
+            expect(file?.data.features[0].surveyResponses).toHaveLength(2);
+        });
+    });
+
+    /**
+     * Task 28.7: Integration test for stories generation
+     */
+    describe('Stories Generation Flow', () => {
+        it('should save and load user stories', async () => {
+            const projectName = 'stories-test';
+
+            await stageManager.initializeProject(projectName);
+
+            // Save stories
+            const stories = [
+                {
+                    id: 'story-1',
+                    title: 'User Login',
+                    description: 'As a user, I want to log in to access my account',
+                    acceptanceCriteria: ['Email validation', 'Password requirements'],
+                    clarifyingQuestions: [],
+                },
+                {
+                    id: 'story-2',
+                    title: 'View Dashboard',
+                    description: 'As a user, I want to see my dashboard after login',
+                    acceptanceCriteria: ['Show recent activity'],
+                    clarifyingQuestions: [{ question: 'What data?', answer: 'Activity' }],
+                },
+            ];
+            await stageManager.writeStageFile(projectName, 'stories', { stories }, true);
+
+            // Load stories
+            const file = await stageManager.readStageFile(projectName, 'stories');
+            expect(file?.data.stories).toHaveLength(2);
+            expect(file?.data.stories[0].title).toBe('User Login');
+            expect(file?.data.stories[1].clarifyingQuestions).toHaveLength(1);
+        });
+
+        it('should preserve story structure after edit', async () => {
+            const projectName = 'stories-edit-test';
+
+            await stageManager.initializeProject(projectName);
+
+            // Initial save
+            const stories = [
+                { id: 'story-1', title: 'Original', description: 'Initial' },
+            ];
+            await stageManager.writeStageFile(projectName, 'stories', { stories }, true);
+
+            // Edit story
+            const updatedStories = [
+                { id: 'story-1', title: 'Updated', description: 'Modified', acceptanceCriteria: ['New criteria'] },
+            ];
+            await stageManager.writeStageFile(projectName, 'stories', { stories: updatedStories }, true);
+
+            const file = await stageManager.readStageFile(projectName, 'stories');
+            expect(file?.data.stories[0].title).toBe('Updated');
+            expect(file?.data.stories[0].acceptanceCriteria).toEqual(['New criteria']);
+        });
+    });
+
+    /**
+     * Task 28.8: Integration test for design generation
+     */
+    describe('Design Generation Flow', () => {
+        it('should save and load user flows', async () => {
+            const projectName = 'design-test';
+
+            await stageManager.initializeProject(projectName);
+
+            // Save design with user flows
+            const design = {
+                userFlows: [
+                    {
+                        id: 'flow-1',
+                        name: 'Login Flow',
+                        description: 'User authentication journey',
+                        steps: ['Landing Page', 'Login Form', 'Dashboard'],
+                    },
+                    {
+                        id: 'flow-2',
+                        name: 'Checkout Flow',
+                        description: 'Purchase completion',
+                        steps: ['Cart', 'Payment', 'Confirmation'],
+                    },
+                ],
+                pages: [],
+                framework: 'React',
+            };
+            await stageManager.writeStageFile(projectName, 'design', design, true);
+
+            // Load design
+            const file = await stageManager.readStageFile(projectName, 'design');
+            expect(file?.data.userFlows).toHaveLength(2);
+            expect(file?.data.framework).toBe('React');
+            expect(file?.data.userFlows[0].steps).toHaveLength(3);
+        });
+
+        it('should save and load page specifications', async () => {
+            const projectName = 'design-pages-test';
+
+            await stageManager.initializeProject(projectName);
+
+            // Save design with pages
+            const design = {
+                userFlows: [],
+                pages: [
+                    {
+                        id: 'page-1',
+                        name: 'Dashboard',
+                        purpose: 'Display user overview and recent activity',
+                        uiElements: ['Header', 'Activity Feed', 'Stats Card'],
+                        userActions: ['View details', 'Quick actions'],
+                    },
+                    {
+                        id: 'page-2',
+                        name: 'Settings',
+                        purpose: 'Allow user to modify preferences',
+                        uiElements: ['Form', 'Save Button'],
+                        userActions: ['Edit settings', 'Save changes'],
+                    },
+                ],
+                framework: 'Next.js',
+            };
+            await stageManager.writeStageFile(projectName, 'design', design, true);
+
+            const file = await stageManager.readStageFile(projectName, 'design');
+            expect(file?.data.pages).toHaveLength(2);
+            expect(file?.data.pages[0].uiElements).toContain('Header');
+            expect(file?.data.pages[1].userActions).toContain('Save changes');
+        });
+
+        it('should persist framework selection', async () => {
+            const projectName = 'design-framework-test';
+
+            await stageManager.initializeProject(projectName);
+
+            const frameworks = ['React', 'Vue', 'Next.js', 'HTML', 'Flutter'];
+
+            for (const framework of frameworks) {
+                await stageManager.writeStageFile(
+                    projectName,
+                    'design',
+                    { userFlows: [], pages: [], framework },
+                    true
+                );
+
+                const file = await stageManager.readStageFile(projectName, 'design');
+                expect(file?.data.framework).toBe(framework);
+            }
+        });
+    });
 });

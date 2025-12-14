@@ -608,7 +608,7 @@
     - Test consolidated feedback saving and loading
     - Test screenshot saving and loading
     - _Requirements: 15.4_
-  - [ ] 28.4 Create integration test for feature generation
+  - [x] 28.4 Create integration test for feature generation
     - Test persona agent creation and surveying
     - Test consolidator agent analysis
     - Test feature data persistence with survey metadata
@@ -625,12 +625,12 @@
     - Test dev server startup and screenshot capture
     - Test feedback aggregation and iteration
     - _Requirements: 15.7_
-  - [ ] 28.7 Create integration test for stories generation
+  - [x] 28.7 Create integration test for stories generation
     - Test UX agent user story generation from features
     - Test story editing and clarifying questions
     - Test story persistence
     - _Requirements: 15.8_
-  - [ ] 28.8 Create integration test for design generation
+  - [x] 28.8 Create integration test for design generation
     - Test UX agent design generation from user stories
     - Test user flow and page generation
     - Test design persistence with framework
