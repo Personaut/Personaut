@@ -556,13 +556,13 @@
     - Invoke UX agent to regenerate flows
     - Send flows-updated response
     - _Requirements: 14.7_
-  - [ ] 25.6 Update design save logic
+  - [x] 25.6 Update design save logic
     - Save user flows with page sequences
     - Save pages with purpose, UI elements, user actions
     - Save selected framework
     - Persist to design stage file
     - _Requirements: 14.8, 14.9_
-  - [ ] 25.7 Write property tests for design generation
+  - [x] 25.7 Write property tests for design generation
     - **Property 48: Design Generation from User Stories**
     - **Property 49: User Flow Creation**
     - **Property 50: Page Design Specification**

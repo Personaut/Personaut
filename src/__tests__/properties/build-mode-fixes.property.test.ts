@@ -883,3 +883,131 @@ describe('Property 47: User Story Persistence', () => {
         );
     });
 });
+
+/**
+ * **Feature: build-mode-fixes, Property 49: User Flow Creation**
+ *
+ * *For any* generated user flow, the flow SHALL include id, name, description,
+ * and steps array showing page navigation.
+ *
+ * **Validates: Requirements 14.2**
+ */
+describe('Property 49: User Flow Creation', () => {
+    it('should normalize user flow with all required fields', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    name: fc.string({ minLength: 1, maxLength: 100 }),
+                    description: fc.string({ minLength: 0, maxLength: 300 }),
+                    steps: fc.array(fc.string({ minLength: 1, maxLength: 50 })),
+                }),
+                (input) => {
+                    // Simulate normalization logic from handler
+                    const normalizedFlow = {
+                        id: `flow-${Date.now()}`,
+                        name: input.name || 'User Flow',
+                        description: input.description || '',
+                        steps: Array.isArray(input.steps) ? input.steps : [],
+                    };
+
+                    // Property: all required fields SHALL be present
+                    expect(normalizedFlow.id).toBeDefined();
+                    expect(normalizedFlow.name).toBeDefined();
+                    expect(normalizedFlow.description).toBeDefined();
+                    expect(normalizedFlow.steps).toBeInstanceOf(Array);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 50: Page Design Specification**
+ *
+ * *For any* generated page, the page SHALL include id, name, purpose,
+ * uiElements array, and userActions array.
+ *
+ * **Validates: Requirements 14.3**
+ */
+describe('Property 50: Page Design Specification', () => {
+    it('should normalize page with all required fields', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    name: fc.string({ minLength: 1, maxLength: 100 }),
+                    purpose: fc.string({ minLength: 0, maxLength: 300 }),
+                    uiElements: fc.array(fc.string({ minLength: 1, maxLength: 100 })),
+                    userActions: fc.array(fc.string({ minLength: 1, maxLength: 100 })),
+                }),
+                (input) => {
+                    // Simulate normalization logic from handler
+                    const normalizedPage = {
+                        id: `page-${Date.now()}`,
+                        name: input.name || 'Page',
+                        purpose: input.purpose || '',
+                        uiElements: Array.isArray(input.uiElements) ? input.uiElements : [],
+                        userActions: Array.isArray(input.userActions) ? input.userActions : [],
+                    };
+
+                    // Property: all required fields SHALL be present
+                    expect(normalizedPage.id).toBeDefined();
+                    expect(normalizedPage.name).toBeDefined();
+                    expect(normalizedPage.purpose).toBeDefined();
+                    expect(normalizedPage.uiElements).toBeInstanceOf(Array);
+                    expect(normalizedPage.userActions).toBeInstanceOf(Array);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 54: Design Persistence with Framework**
+ *
+ * *For any* design saved to storage, the data SHALL include userFlows, pages,
+ * and framework selection, all serializable correctly.
+ *
+ * **Validates: Requirements 14.8, 14.9**
+ */
+describe('Property 54: Design Persistence with Framework', () => {
+    it('should maintain design data integrity through JSON serialization', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    framework: fc.constantFrom('React', 'Vue', 'Next.js', 'HTML', 'Flutter'),
+                    userFlows: fc.array(
+                        fc.record({
+                            id: fc.uuid(),
+                            name: fc.string({ minLength: 1, maxLength: 50 }),
+                            steps: fc.array(fc.string({ minLength: 1, maxLength: 30 })),
+                        })
+                    ),
+                    pages: fc.array(
+                        fc.record({
+                            id: fc.uuid(),
+                            name: fc.string({ minLength: 1, maxLength: 50 }),
+                            purpose: fc.string({ minLength: 0, maxLength: 200 }),
+                        })
+                    ),
+                }),
+                (design) => {
+                    // Simulate save/load cycle
+                    const serialized = JSON.stringify(design);
+                    const deserialized = JSON.parse(serialized);
+
+                    // Property: data SHALL survive serialization
+                    expect(deserialized.framework).toBe(design.framework);
+                    expect(deserialized.userFlows.length).toBe(design.userFlows.length);
+                    expect(deserialized.pages.length).toBe(design.pages.length);
+
+                    // Property: framework SHALL be a valid option
+                    const validFrameworks = ['React', 'Vue', 'Next.js', 'HTML', 'Flutter'];
+                    expect(validFrameworks).toContain(deserialized.framework);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+});

@@ -2606,7 +2606,13 @@ Next steps:
       case 'stories':
         return { stories: userStories };
       case 'design':
-        return { design: buildData.design, iterationState };
+        return {
+          design: buildData.design,
+          iterationState,
+          userFlows,
+          pages: generatedScreens,
+          framework: selectedFramework,
+        };
       default:
         return {};
     }
