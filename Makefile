@@ -110,13 +110,15 @@ package: build
 
 # Install extension locally in VS Code
 install-ext: package
-	@echo "✅ Package created: personaut-extension-0.1.1.vsix"
-	@echo ""
-	@echo "To install in VS Code:"
-	@echo "  1. Open VS Code"
-	@echo "  2. Press Cmd+Shift+P (or Ctrl+Shift+P)"
-	@echo "  3. Type 'Extensions: Install from VSIX...'"
-	@echo "  4. Select: $(PWD)/personaut-extension-0.1.1.vsix"
+	@VERSION=$$(node -p "require('./package.json').version"); \
+	NAME=$$(node -p "require('./package.json').name"); \
+	echo "✅ Package created: $$NAME-$$VERSION.vsix"; \
+	echo ""; \
+	echo "To install in VS Code:"; \
+	echo "  1. Open VS Code"; \
+	echo "  2. Press Cmd+Shift+P (or Ctrl+Shift+P)"; \
+	echo "  3. Type 'Extensions: Install from VSIX...'"; \
+	echo "  4. Select: $(PWD)/$$NAME-$$VERSION.vsix"
 
 # Development setup (install + build)
 dev: install build
