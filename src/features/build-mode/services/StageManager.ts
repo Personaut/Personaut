@@ -236,6 +236,268 @@ export class StageManager {
     return path.join(this.baseDir, projectName);
   }
 
+  /**
+   * Get the path to the building directory for a project.
+   * Returns: .personaut/{projectName}/building
+   */
+  getBuildingDir(projectName: string): string {
+    return path.join(this.baseDir, projectName, 'building');
+  }
+
+  /**
+   * Create the building folder for a project.
+   * This folder stores build artifacts, generated code, and page iteration data.
+   * Returns the absolute path to the created folder.
+   * @param projectName - The project name
+   * @param pageNames - Optional array of page names to create subfolders for
+   */
+  async createBuildFolder(projectName: string, pageNames?: string[]): Promise<string> {
+    const buildingDir = this.getBuildingDir(projectName);
+    const absolutePath = path.resolve(buildingDir);
+
+    await fs.promises.mkdir(absolutePath, { recursive: true });
+
+    // Create pages directory
+    const pagesDir = path.join(absolutePath, 'pages');
+    await fs.promises.mkdir(pagesDir, { recursive: true });
+
+    // Create subfolders for each page if provided
+    if (pageNames && pageNames.length > 0) {
+      for (const pageName of pageNames) {
+        // Sanitize page name for folder (lowercase, replace spaces with dashes)
+        const sanitizedName = pageName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '');
+
+        const pageDir = path.join(pagesDir, sanitizedName);
+        await fs.promises.mkdir(pageDir, { recursive: true });
+
+        // Create iteration subdirectory
+        await fs.promises.mkdir(path.join(pageDir, 'iterations'), { recursive: true });
+
+        console.log(`[StageManager] Created page folder: ${pageDir}`);
+      }
+    }
+
+    console.log(`[StageManager] Created building folder at: ${absolutePath}`);
+    return absolutePath;
+  }
+
+  /**
+   * Get the path to a specific page's iteration folder.
+   * Returns: .personaut/{projectName}/building/pages/{pageName}/iterations/{iterationNumber}
+   */
+  getPageIterationDir(projectName: string, pageName: string, iterationNumber: number): string {
+    const sanitizedName = pageName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    return path.join(
+      this.getBuildingDir(projectName),
+      'pages',
+      sanitizedName,
+      'iterations',
+      String(iterationNumber)
+    );
+  }
+
+  /**
+   * Save iteration data for a specific page.
+   * Creates files for: ux-specs.md, developer-output.md, user-feedback.json, consolidated-feedback.md, screenshot.png
+   */
+  async savePageIterationData(
+    projectName: string,
+    pageName: string,
+    iterationNumber: number,
+    data: {
+      uxSpecs?: string;
+      developerOutput?: string;
+      userFeedback?: any[];
+      consolidatedFeedback?: string;
+      screenshotPath?: string;
+      averageRating?: number;
+      approved?: boolean;
+    }
+  ): Promise<string> {
+    const iterDir = this.getPageIterationDir(projectName, pageName, iterationNumber);
+    await fs.promises.mkdir(iterDir, { recursive: true });
+
+    // Save UX specs
+    if (data.uxSpecs) {
+      await fs.promises.writeFile(
+        path.join(iterDir, 'ux-specs.md'),
+        data.uxSpecs,
+        'utf-8'
+      );
+    }
+
+    // Save developer output
+    if (data.developerOutput) {
+      await fs.promises.writeFile(
+        path.join(iterDir, 'developer-output.md'),
+        data.developerOutput,
+        'utf-8'
+      );
+    }
+
+    // Save user feedback (JSON)
+    if (data.userFeedback) {
+      await fs.promises.writeFile(
+        path.join(iterDir, 'user-feedback.json'),
+        JSON.stringify(data.userFeedback, null, 2),
+        'utf-8'
+      );
+    }
+
+    // Save consolidated feedback
+    if (data.consolidatedFeedback) {
+      await fs.promises.writeFile(
+        path.join(iterDir, 'consolidated-feedback.md'),
+        data.consolidatedFeedback,
+        'utf-8'
+      );
+    }
+
+    // Copy screenshot if provided
+    if (data.screenshotPath && fs.existsSync(data.screenshotPath)) {
+      const destPath = path.join(iterDir, 'screenshot.png');
+      await fs.promises.copyFile(data.screenshotPath, destPath);
+    }
+
+    // Save iteration metadata
+    const metadata = {
+      pageName,
+      iterationNumber,
+      timestamp: Date.now(),
+      averageRating: data.averageRating,
+      approved: data.approved ?? false,
+    };
+    await fs.promises.writeFile(
+      path.join(iterDir, 'metadata.json'),
+      JSON.stringify(metadata, null, 2),
+      'utf-8'
+    );
+
+    console.log(`[StageManager] Saved iteration ${iterationNumber} data for page: ${pageName}`);
+    return iterDir;
+  }
+
+  /**
+   * Load all iteration data for a specific page.
+   */
+  async loadPageIterations(
+    projectName: string,
+    pageName: string
+  ): Promise<Array<{
+    iterationNumber: number;
+    uxSpecs?: string;
+    developerOutput?: string;
+    userFeedback?: any[];
+    consolidatedFeedback?: string;
+    screenshotPath?: string;
+    averageRating?: number;
+    approved?: boolean;
+    timestamp?: number;
+  }>> {
+    const sanitizedName = pageName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const iterationsDir = path.join(
+      this.getBuildingDir(projectName),
+      'pages',
+      sanitizedName,
+      'iterations'
+    );
+
+    const iterations: any[] = [];
+
+    try {
+      if (!fs.existsSync(iterationsDir)) {
+        return iterations;
+      }
+
+      const dirs = await fs.promises.readdir(iterationsDir);
+      for (const dir of dirs) {
+        const iterNum = parseInt(dir, 10);
+        if (isNaN(iterNum)) continue;
+
+        const iterDir = path.join(iterationsDir, dir);
+        const stat = await fs.promises.stat(iterDir);
+        if (!stat.isDirectory()) continue;
+
+        const iteration: any = { iterationNumber: iterNum };
+
+        // Load UX specs
+        const uxPath = path.join(iterDir, 'ux-specs.md');
+        if (fs.existsSync(uxPath)) {
+          iteration.uxSpecs = await fs.promises.readFile(uxPath, 'utf-8');
+        }
+
+        // Load developer output
+        const devPath = path.join(iterDir, 'developer-output.md');
+        if (fs.existsSync(devPath)) {
+          iteration.developerOutput = await fs.promises.readFile(devPath, 'utf-8');
+        }
+
+        // Load user feedback
+        const feedbackPath = path.join(iterDir, 'user-feedback.json');
+        if (fs.existsSync(feedbackPath)) {
+          const content = await fs.promises.readFile(feedbackPath, 'utf-8');
+          iteration.userFeedback = JSON.parse(content);
+        }
+
+        // Load consolidated feedback
+        const consolidatedPath = path.join(iterDir, 'consolidated-feedback.md');
+        if (fs.existsSync(consolidatedPath)) {
+          iteration.consolidatedFeedback = await fs.promises.readFile(consolidatedPath, 'utf-8');
+        }
+
+        // Check for screenshot
+        const screenshotPath = path.join(iterDir, 'screenshot.png');
+        if (fs.existsSync(screenshotPath)) {
+          iteration.screenshotPath = screenshotPath;
+        }
+
+        // Load metadata
+        const metadataPath = path.join(iterDir, 'metadata.json');
+        if (fs.existsSync(metadataPath)) {
+          const metadata = JSON.parse(await fs.promises.readFile(metadataPath, 'utf-8'));
+          iteration.averageRating = metadata.averageRating;
+          iteration.approved = metadata.approved;
+          iteration.timestamp = metadata.timestamp;
+        }
+
+        iterations.push(iteration);
+      }
+
+      // Sort by iteration number
+      iterations.sort((a, b) => a.iterationNumber - b.iterationNumber);
+      return iterations;
+    } catch (error) {
+      console.error(`[StageManager] Error loading iterations for ${pageName}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get the current workspace path (VS Code workspace root).
+   */
+  async getWorkspacePath(): Promise<string> {
+    // Try to use VS Code workspace folder if available
+    // Otherwise, use current working directory
+    const vscode = await import('vscode');
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+
+    if (workspaceFolders && workspaceFolders.length > 0) {
+      return workspaceFolders[0].uri.fsPath;
+    }
+
+    // Fallback to process.cwd()
+    return process.cwd();
+  }
+
   projectExists(projectName: string): boolean {
     const projectDir = this.getProjectDir(projectName);
     return fs.existsSync(projectDir);
@@ -384,6 +646,8 @@ export class StageManager {
       filePath = this.getStageFilePath(projectName, stage);
     }
 
+    console.log(`[StageManager] Reading stage file for ${stage}: ${filePath}`);
+
     try {
       // Check new location first
       if (!fs.existsSync(filePath)) {
@@ -393,12 +657,14 @@ export class StageManager {
           console.log(`[StageManager] Reading from legacy location: ${oldFilePath}`);
           filePath = oldFilePath;
         } else {
+          console.log(`[StageManager] Stage file not found: ${filePath}`);
           return null;
         }
       }
 
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const parsed = JSON.parse(content) as StageFile;
+      console.log(`[StageManager] Parsed stage file ${stage}:`, { stage: parsed.stage, dataType: typeof parsed.data, hasData: !!parsed.data });
 
       if (
         typeof parsed.stage !== 'string' ||
@@ -457,9 +723,10 @@ export class StageManager {
 
       return result;
     } catch (error: any) {
-      console.error(`[StageManager] Write error for ${filePath}:`, {
-        error: error.message,
-        code: error.code,
+      const errorMessage = error?.message || String(error) || 'Unknown error';
+      const errorCode = error?.code || 'UNKNOWN';
+      console.error(`[StageManager] Write error for ${filePath}: ${errorMessage} (${errorCode})`);
+      console.error(`[StageManager] Write error details:`, {
         projectName,
         stage,
         timestamp: new Date().toISOString(),
@@ -1102,5 +1369,35 @@ export class StageManager {
       consolidatedFeedback,
       screenshots,
     };
+  }
+
+  /**
+   * Save UX specifications for an iteration page.
+   * Saves to: .personaut/{project}/iterations/{page}/{iteration}/ux-specs.md
+   */
+  async saveUxSpecs(
+    projectName: string,
+    iterationNumber: number,
+    pageName: string,
+    specs: string
+  ): Promise<string> {
+    // Sanitize page name for directory
+    const pageDir = pageName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+    const iterationDir = path.join(
+      this.baseDir,
+      projectName,
+      'iterations',
+      pageDir,
+      String(iterationNumber)
+    );
+    const specsPath = path.join(iterationDir, 'ux-specs.md');
+
+    // Create directory if not exists
+    await fs.promises.mkdir(iterationDir, { recursive: true });
+
+    await fs.promises.writeFile(specsPath, specs, 'utf-8');
+
+    console.log(`[StageManager] Saved UX specs for ${pageName} iteration ${iterationNumber}: ${specsPath}`);
+    return specsPath;
   }
 }

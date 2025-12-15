@@ -216,6 +216,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       'check-project-name',
       'capture-screenshot',
       'clear-build-context',
+      // Interview and feature generation
+      'generate-features-from-interviews',
+      'regenerate-single-feature',
+      'generate-user-stories',
+      // User flows and design
+      'generate-user-flows',
+      // Building workflow
+      'initialize-building',
+      'start-building-workflow',
+      'pause-building-workflow',
+      'resume-building-workflow',
+      // Survey responses
+      'save-survey-response',
+      // Cancel operations
+      'cancel-operation',
     ];
     return buildModeMessageTypes.includes(type);
   }

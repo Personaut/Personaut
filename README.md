@@ -329,8 +329,57 @@ When these settings are changed, all active agents are automatically disposed an
 - **`autoRead`** - Auto-read file permissions
 - **`autoWrite`** - Auto-write file permissions
 - **`autoExecute`** - Auto-execute command permissions
-- **`rateLimit`** - Rate limit configuration
-- **`rateLimitWarningThreshold`** - Warning threshold
+- **`rateLimit`** - Rate limit configuration (see Token Monitoring below)
+- **`rateLimitWarningThreshold`** - Warning threshold percentage (see Token Monitoring below)
+
+## 📊 Token Monitoring
+
+Personaut includes built-in token usage monitoring to help you manage API costs and prevent unexpected charges.
+
+### Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `personaut.rateLimit` | 100,000 | Maximum tokens allowed per conversation |
+| `personaut.rateLimitWarningThreshold` | 80 | Percentage of limit at which to show warning (1-100) |
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `Personaut: Reset Token Usage` | Reset the token counter for tracking |
+| `Personaut: View Token Usage` | Display current token usage statistics |
+| `Personaut: Set Conversation Limit` | Set a custom token limit |
+
+### How It Works
+
+1. **Tracking**: Every LLM call records input and output tokens
+2. **Accumulation**: Tokens accumulate across messages in a conversation  
+3. **Warning**: When usage reaches the warning threshold (default 80%), a notification is displayed
+4. **Enforcement**: When the limit is reached, new LLM calls are blocked with a clear error message
+5. **Persistence**: Token usage is saved and restored across VS Code sessions
+
+### Token Estimation
+
+When providers don't return token counts, Personaut estimates using a conservative formula:
+- **Estimation rate**: ~4 characters per token
+- **Minimum**: 1 token for any non-empty text
+
+### Troubleshooting
+
+**"Token limit exceeded" error:**
+- Use `Personaut: Reset Token Usage` command to reset the counter
+- Increase `personaut.rateLimit` in settings
+- Use `Personaut: Set Conversation Limit` for conversation-specific limits
+
+**Usage seems high:**
+- Token counts include both input (your messages + context) and output (AI responses)
+- System prompts and tool definitions also consume tokens
+- Long conversations accumulate tokens quickly
+
+**Warnings not appearing:**
+- Check that `rateLimitWarningThreshold` is set correctly (1-100)
+- Warnings only appear once per threshold crossing (reset clears this)
 
 ### How It Works
 

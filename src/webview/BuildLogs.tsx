@@ -43,7 +43,7 @@ export const BuildLogs: React.FC<BuildLogsProps> = ({ logs, onClear, onRetry }) 
   };
 
   return (
-    <div className="build-logs-wrapper" style={{ flexShrink: 0 }}>
+    <div className="build-logs-wrapper flex flex-col" style={{ flexShrink: 0, maxHeight: '250px' }}>
       {/* Header bar - always visible */}
       <div
         className="flex items-center justify-between px-3 py-2 bg-gray-800/80 cursor-pointer hover:bg-gray-800 transition-colors border-t border-gray-700"
@@ -73,16 +73,61 @@ export const BuildLogs: React.FC<BuildLogsProps> = ({ logs, onClear, onRetry }) 
             </span>
           )}
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClear();
-          }}
-          className="text-[10px] px-2 py-0.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
-          title="Clear Logs"
-        >
-          Clear
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Download button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (logs.length === 0) return;
+
+              // Create log content
+              const logContent = logs.map(log =>
+                `[${log.timestamp}] [${log.type.toUpperCase()}] ${log.message}`
+              ).join('\n');
+
+              // Create blob and download
+              const blob = new Blob([logContent], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `build-output-${new Date().toISOString().split('T')[0]}.log`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+            className="text-[10px] px-2 py-0.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Download Logs"
+            disabled={logs.length === 0}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+          </button>
+          {/* Clear button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            className="text-[10px] px-2 py-0.5 hover:bg-gray-700 rounded text-gray-400 hover:text-gray-200 transition-colors"
+            title="Clear Logs"
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
       {/* Logs content - only shown when expanded, with fixed max height */}

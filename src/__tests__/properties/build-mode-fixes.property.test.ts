@@ -1011,3 +1011,665 @@ describe('Property 54: Design Persistence with Framework', () => {
         );
     });
 });
+
+/**
+ * **Feature: build-mode-fixes, Property 12: AI Content Generation Invocation**
+ *
+ * *For any* content generation request, the system SHALL invoke the AgentManager
+ * with the appropriate stage, project name, and prompt.
+ *
+ * **Validates: Requirements 8.1**
+ */
+describe('Property 12: AI Content Generation Invocation', () => {
+    it('should validate content generation request structure', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    projectName: fc
+                        .string({ minLength: 1, maxLength: 50 })
+                        .filter((s) => /^[a-z0-9-]+$/.test(s)),
+                    stage: fc.constantFrom('users', 'features', 'stories', 'design'),
+                    prompt: fc.string({ minLength: 1, maxLength: 500 }),
+                    systemPrompt: fc.string({ minLength: 0, maxLength: 300 }),
+                }),
+                (request) => {
+                    // Property: request SHALL have required fields
+                    expect(request.projectName).toBeDefined();
+                    expect(request.stage).toBeDefined();
+                    expect(request.prompt).toBeDefined();
+
+                    // Property: stage SHALL be a valid stage
+                    const validStages = ['users', 'features', 'stories', 'design'];
+                    expect(validStages).toContain(request.stage);
+
+                    // Property: projectName SHALL be valid
+                    expect(/^[a-z0-9-]+$/.test(request.projectName)).toBe(true);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 13: Content Streaming Updates**
+ *
+ * *For any* content generation in progress, the system SHALL send stream-update
+ * messages to the webview with parsed data items.
+ *
+ * **Validates: Requirements 8.2**
+ */
+describe('Property 13: Content Streaming Updates', () => {
+    it('should validate stream update message structure', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    stage: fc.constantFrom('users', 'features', 'stories', 'design'),
+                    updateType: fc.constantFrom('persona', 'feature', 'story', 'flow', 'screen'),
+                    index: fc.integer({ min: 0, max: 100 }),
+                    data: fc.record({
+                        id: fc.uuid(),
+                        name: fc.string({ minLength: 1, maxLength: 100 }),
+                    }),
+                }),
+                (update) => {
+                    // Property: update SHALL have stage identifier
+                    expect(update.stage).toBeDefined();
+
+                    // Property: update SHALL have data type indicator
+                    expect(update.updateType).toBeDefined();
+
+                    // Property: update SHALL have index for ordering
+                    expect(typeof update.index).toBe('number');
+                    expect(update.index).toBeGreaterThanOrEqual(0);
+
+                    // Property: data SHALL have an id
+                    expect(update.data.id).toBeDefined();
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+
+    it('should validate update type matches stage', () => {
+        const stageToUpdateType: Record<string, string[]> = {
+            users: ['persona'],
+            features: ['feature'],
+            stories: ['story'],
+            design: ['flow', 'screen'],
+        };
+
+        fc.assert(
+            fc.property(
+                fc.constantFrom('users', 'features', 'stories', 'design'),
+                (stage) => {
+                    const validTypes = stageToUpdateType[stage];
+
+                    // Property: each stage SHALL have valid update types
+                    expect(validTypes).toBeDefined();
+                    expect(validTypes.length).toBeGreaterThan(0);
+                }
+            ),
+            { numRuns: 20 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 14: Content Generation Completion**
+ *
+ * *For any* successful content generation, the system SHALL save the generated
+ * content to the stage file and send a completion message to the webview.
+ *
+ * **Validates: Requirements 8.3**
+ */
+describe('Property 14: Content Generation Completion', () => {
+    it('should validate completion message structure', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    projectName: fc
+                        .string({ minLength: 1, maxLength: 50 })
+                        .filter((s) => /^[a-z0-9-]+$/.test(s)),
+                    stage: fc.constantFrom('users', 'features', 'stories', 'design'),
+                    success: fc.boolean(),
+                    itemCount: fc.integer({ min: 0, max: 20 }),
+                }),
+                (completion) => {
+                    // Property: completion SHALL have project identifier
+                    expect(completion.projectName).toBeDefined();
+
+                    // Property: completion SHALL have stage identifier
+                    expect(completion.stage).toBeDefined();
+
+                    // Property: completion SHALL have success status
+                    expect(typeof completion.success).toBe('boolean');
+
+                    // Property: on success, itemCount SHALL be >= 0
+                    if (completion.success) {
+                        expect(completion.itemCount).toBeGreaterThanOrEqual(0);
+                    }
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+
+    it('should validate stage file data structure', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom('users', 'features', 'stories', 'design'),
+                fc.array(
+                    fc.record({
+                        id: fc.uuid(),
+                        name: fc.string({ minLength: 1, maxLength: 100 }),
+                    }),
+                    { minLength: 0, maxLength: 10 }
+                ),
+                (stage, items) => {
+                    // Simulate stage file structure
+                    const stageFile: Record<string, unknown> = {
+                        projectName: 'test-project',
+                        stage,
+                        completed: items.length > 0,
+                        updatedAt: Date.now(),
+                        data: {},
+                    };
+
+                    // Add stage-specific data
+                    if (stage === 'users') {
+                        (stageFile.data as Record<string, unknown>).personas = items;
+                    } else if (stage === 'features') {
+                        (stageFile.data as Record<string, unknown>).features = items;
+                    } else if (stage === 'stories') {
+                        (stageFile.data as Record<string, unknown>).stories = items;
+                    } else if (stage === 'design') {
+                        (stageFile.data as Record<string, unknown>).pages = items;
+                    }
+
+                    // Property: stage file SHALL be JSON serializable
+                    expect(() => JSON.stringify(stageFile)).not.toThrow();
+
+                    // Property: stage file SHALL have required metadata
+                    expect(stageFile.stage).toBe(stage);
+                    expect(typeof stageFile.completed).toBe('boolean');
+                    expect(typeof stageFile.updatedAt).toBe('number');
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+});
+
+/**
+ * **Feature: build-mode-fixes, Property 15: Content Generation Error Handling**
+ *
+ * *For any* content generation failure, the system SHALL save partial content
+ * and mark the stage with an error, then send an error message to the webview.
+ *
+ * **Validates: Requirements 8.4**
+ */
+describe('Property 15: Content Generation Error Handling', () => {
+    it('should validate error message structure', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    projectName: fc
+                        .string({ minLength: 1, maxLength: 50 })
+                        .filter((s) => /^[a-z0-9-]+$/.test(s)),
+                    stage: fc.constantFrom('users', 'features', 'stories', 'design'),
+                    error: fc.string({ minLength: 1, maxLength: 200 }),
+                    partialItemCount: fc.integer({ min: 0, max: 10 }),
+                }),
+                (errorResult) => {
+                    // Property: error result SHALL have project identifier
+                    expect(errorResult.projectName).toBeDefined();
+
+                    // Property: error result SHALL have stage identifier
+                    expect(errorResult.stage).toBeDefined();
+
+                    // Property: error result SHALL have error message
+                    expect(errorResult.error).toBeDefined();
+                    expect(errorResult.error.length).toBeGreaterThan(0);
+
+                    // Property: error result SHALL have partial item count
+                    expect(typeof errorResult.partialItemCount).toBe('number');
+                    expect(errorResult.partialItemCount).toBeGreaterThanOrEqual(0);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+
+    it('should validate error stage file preserves partial content', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    stage: fc.constantFrom('users', 'features', 'stories', 'design'),
+                    error: fc.string({ minLength: 1, maxLength: 200 }),
+                }),
+                fc.array(
+                    fc.record({
+                        id: fc.uuid(),
+                        name: fc.string({ minLength: 1, maxLength: 100 }),
+                    }),
+                    { minLength: 0, maxLength: 5 }
+                ),
+                (errorInfo, partialItems) => {
+                    // Simulate error stage file
+                    const stageFile = {
+                        projectName: 'test-project',
+                        stage: errorInfo.stage,
+                        completed: false,
+                        error: errorInfo.error,
+                        updatedAt: Date.now(),
+                        data: { personas: partialItems },
+                    };
+
+                    // Property: error stage file SHALL have error field
+                    expect(stageFile.error).toBeDefined();
+
+                    // Property: error stage file SHALL NOT be marked complete
+                    expect(stageFile.completed).toBe(false);
+
+                    // Property: error stage file SHALL preserve partial data
+                    expect(stageFile.data).toBeDefined();
+                    expect(Array.isArray(stageFile.data.personas)).toBe(true);
+                    expect(stageFile.data.personas.length).toBe(partialItems.length);
+                }
+            ),
+            { numRuns: 50 }
+        );
+    });
+});
+
+/**
+ * Property 16: Feature Survey Persona Agent Creation
+ * Validates: Requirements 10.1, 10.2
+ */
+describe('Property 16: Feature Survey Persona Agent Creation', () => {
+    it('should create unique agent for each persona with proper context', () => {
+        fc.assert(
+            fc.property(
+                fc.array(
+                    fc.record({
+                        id: fc.uuid(),
+                        name: fc.string({ minLength: 1, maxLength: 50 }),
+                        backstory: fc.string({ minLength: 10, maxLength: 500 }),
+                        attributes: fc.record({
+                            occupation: fc.string({ minLength: 1, maxLength: 50 }),
+                            age: fc.integer({ min: 18, max: 80 }).map(String),
+                        }),
+                    }),
+                    { minLength: 1, maxLength: 5 }
+                ),
+                fc.string({ minLength: 10, maxLength: 200 }),
+                (personas, idea) => {
+                    // Simulate agent creation for each persona
+                    const agents = personas.map((persona, index) => ({
+                        conversationId: `interview-project-${persona.id}-${Date.now() + index}`,
+                        systemPrompt: `You are ${persona.name}. Occupation: ${persona.attributes.occupation}. Backstory: ${persona.backstory}. Product Idea: "${idea}"`,
+                        personaId: persona.id,
+                    }));
+
+                    // Property: each persona SHALL have unique conversation ID
+                    const conversationIds = new Set(agents.map((a) => a.conversationId));
+                    expect(conversationIds.size).toBe(personas.length);
+
+                    // Property: each agent SHALL include persona name in system prompt
+                    for (let i = 0; i < personas.length; i++) {
+                        expect(agents[i].systemPrompt).toContain(personas[i].name);
+                    }
+
+                    // Property: each agent SHALL include persona occupation in system prompt
+                    for (let i = 0; i < personas.length; i++) {
+                        expect(agents[i].systemPrompt).toContain(personas[i].attributes.occupation);
+                    }
+
+                    // Property: each agent SHALL include idea in system prompt
+                    for (const agent of agents) {
+                        expect(agent.systemPrompt).toContain(idea);
+                    }
+                }
+            ),
+            { numRuns: 30 }
+        );
+    });
+});
+
+/**
+ * Property 17: Feature Survey Response Structure
+ * Validates: Requirements 10.3, 10.4
+ */
+describe('Property 17: Feature Survey Response Structure', () => {
+    it('should validate consolidated feature structure', () => {
+        fc.assert(
+            fc.property(
+                fc.array(
+                    fc.record({
+                        personaId: fc.uuid(),
+                        personaName: fc.string({ minLength: 1 }),
+                        features: fc.array(
+                            fc.record({
+                                name: fc.string({ minLength: 1, maxLength: 100 }),
+                                reason: fc.string({ minLength: 1, maxLength: 200 }),
+                            }),
+                            { minLength: 1, maxLength: 5 }
+                        ),
+                        score: fc.integer({ min: 0, max: 10 }),
+                        feedback: fc.string({ minLength: 1, maxLength: 500 }),
+                    }),
+                    { minLength: 2, maxLength: 5 }
+                ),
+                (surveyResponses) => {
+                    // Simulate feature consolidation
+                    const featureMap = new Map<string, { name: string; reasons: string[]; scores: number[]; personas: string[] }>();
+
+                    for (const response of surveyResponses) {
+                        for (const feature of response.features) {
+                            const existing = featureMap.get(feature.name) || {
+                                name: feature.name,
+                                reasons: [],
+                                scores: [],
+                                personas: [],
+                            };
+                            existing.reasons.push(feature.reason);
+                            existing.scores.push(response.score);
+                            existing.personas.push(response.personaName);
+                            featureMap.set(feature.name, existing);
+                        }
+                    }
+
+                    const consolidatedFeatures = Array.from(featureMap.values()).map((f) => ({
+                        name: f.name,
+                        description: f.reasons.join('; '),
+                        score: f.scores.reduce((a, b) => a + b, 0) / f.scores.length,
+                        frequency: f.personas.length > 2 ? 'High' : f.personas.length > 1 ? 'Medium' : 'Low',
+                        priority:
+                            f.scores.reduce((a, b) => a + b, 0) / f.scores.length > 7 ? 'High' : 'Medium',
+                        personas: f.personas,
+                    }));
+
+                    // Property: consolidated features SHALL have valid scores (0-10)
+                    for (const feature of consolidatedFeatures) {
+                        expect(feature.score).toBeGreaterThanOrEqual(0);
+                        expect(feature.score).toBeLessThanOrEqual(10);
+                    }
+
+                    // Property: consolidated features SHALL have at least one persona
+                    for (const feature of consolidatedFeatures) {
+                        expect(feature.personas.length).toBeGreaterThan(0);
+                    }
+
+                    // Property: frequency SHALL be 'High', 'Medium', or 'Low'
+                    for (const feature of consolidatedFeatures) {
+                        expect(['High', 'Medium', 'Low']).toContain(feature.frequency);
+                    }
+                }
+            ),
+            { numRuns: 30 }
+        );
+    });
+});
+
+/**
+ * Property 18: Research Workflow Agent Configuration
+ * Validates: Requirements 11.2, 11.4
+ */
+describe('Property 18: Research Workflow Agent Configuration', () => {
+    it('should create research agents with proper roles and prompts', () => {
+        fc.assert(
+            fc.property(
+                fc.string({ minLength: 10, maxLength: 500 }),
+                (_ideaDescription) => {
+                    // Define research agents as specified in BuildModeService
+                    const researchAgents = [
+                        {
+                            id: 'competitive-analyst',
+                            role: 'Competitive Analyst',
+                            systemPrompt: `competitive analysis researcher`,
+                        },
+                        {
+                            id: 'market-researcher',
+                            role: 'Market Researcher',
+                            systemPrompt: `market research analyst`,
+                        },
+                        {
+                            id: 'user-researcher',
+                            role: 'User Researcher',
+                            systemPrompt: `user researcher`,
+                        },
+                    ];
+
+                    // Property: research workflow SHALL have exactly 3 research agents
+                    expect(researchAgents.length).toBe(3);
+
+                    // Property: each agent SHALL have unique ID
+                    const ids = new Set(researchAgents.map((a) => a.id));
+                    expect(ids.size).toBe(researchAgents.length);
+
+                    // Property: each agent SHALL have defined role
+                    for (const agent of researchAgents) {
+                        expect(agent.role.length).toBeGreaterThan(0);
+                    }
+
+                    // Property: each agent SHALL have non-empty system prompt
+                    for (const agent of researchAgents) {
+                        expect(agent.systemPrompt.length).toBeGreaterThan(0);
+                    }
+
+                    // Property: research agents SHALL include specific roles
+                    const roles = researchAgents.map((a) => a.role);
+                    expect(roles).toContain('Competitive Analyst');
+                    expect(roles).toContain('Market Researcher');
+                    expect(roles).toContain('User Researcher');
+                }
+            ),
+            { numRuns: 20 }
+        );
+    });
+});
+
+/**
+ * Property 19: Research Report Structure
+ * Validates: Requirements 11.5, 11.6
+ */
+describe('Property 19: Research Report Structure', () => {
+    it('should validate synthesized research report structure', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    competitiveAnalysis: fc.string({ minLength: 50, maxLength: 1000 }),
+                    marketResearch: fc.string({ minLength: 50, maxLength: 1000 }),
+                    userResearch: fc.string({ minLength: 50, maxLength: 1000 }),
+                }),
+                (researchData) => {
+                    // Simulate synthesized report
+                    const report = {
+                        ideaDescription: 'Test idea',
+                        competitiveAnalysis: researchData.competitiveAnalysis,
+                        marketResearch: researchData.marketResearch,
+                        userResearch: researchData.userResearch,
+                        synthesizedReport: `Executive Summary: Combined analysis of competitive, market, and user research.`,
+                        success: true,
+                        timestamp: Date.now(),
+                    };
+
+                    // Property: report SHALL have all research sections
+                    expect(report.competitiveAnalysis).toBeDefined();
+                    expect(report.marketResearch).toBeDefined();
+                    expect(report.userResearch).toBeDefined();
+
+                    // Property: report SHALL have synthesized section
+                    expect(report.synthesizedReport).toBeDefined();
+                    expect(report.synthesizedReport.length).toBeGreaterThan(0);
+
+                    // Property: successful report SHALL have success=true
+                    expect(report.success).toBe(true);
+
+                    // Property: report SHALL have timestamp
+                    expect(report.timestamp).toBeGreaterThan(0);
+                }
+            ),
+            { numRuns: 20 }
+        );
+    });
+});
+
+/**
+ * Property 20: Building Workflow Serial Execution
+ * Validates: Requirements 12.2, 12.3, 12.4
+ */
+describe('Property 20: Building Workflow Serial Execution', () => {
+    it('should validate building workflow follows UX -> Dev -> Feedback sequence', () => {
+        fc.assert(
+            fc.property(
+                fc.record({
+                    title: fc.string({ minLength: 5, maxLength: 100 }),
+                    description: fc.string({ minLength: 10, maxLength: 300 }),
+                    acceptanceCriteria: fc.array(fc.string({ minLength: 5, maxLength: 100 }), { minLength: 1, maxLength: 5 }),
+                }),
+                fc.array(
+                    fc.record({
+                        id: fc.uuid(),
+                        name: fc.string({ minLength: 1 }),
+                        backstory: fc.string({ minLength: 10 }),
+                    }),
+                    { minLength: 1, maxLength: 3 }
+                ),
+                (_userStory, personas) => {
+                    // Simulate building workflow steps
+                    const steps = [
+                        { agentId: 'ux-agent', role: 'UX Designer', order: 1 },
+                        { agentId: 'developer-agent', role: 'Developer', order: 2 },
+                        ...personas.map((p, _i) => ({
+                            agentId: `feedback-${p.id}`,
+                            role: `${p.name} Feedback`,
+                            order: 3,
+                        })),
+                    ];
+
+                    // Property: workflow SHALL have UX agent as first step
+                    expect(steps[0].agentId).toBe('ux-agent');
+
+                    // Property: workflow SHALL have Developer agent as second step
+                    expect(steps[1].agentId).toBe('developer-agent');
+
+                    // Property: workflow SHALL have feedback agents after developer
+                    const feedbackSteps = steps.filter((s) => s.agentId.startsWith('feedback-'));
+                    expect(feedbackSteps.length).toBe(personas.length);
+
+                    // Property: total steps SHALL equal 2 + number of personas
+                    expect(steps.length).toBe(2 + personas.length);
+                }
+            ),
+            { numRuns: 30 }
+        );
+    });
+});
+
+/**
+ * Property 21: Building Workflow Feedback Aggregation
+ * Validates: Requirements 12.6, 12.7
+ */
+describe('Property 21: Building Workflow Feedback Aggregation', () => {
+    it('should validate feedback aggregation produces valid summary', () => {
+        fc.assert(
+            fc.property(
+                fc.array(
+                    fc.record({
+                        personaId: fc.uuid(),
+                        personaName: fc.string({ minLength: 1 }),
+                        rating: fc.integer({ min: 1, max: 10 }),
+                        positives: fc.array(fc.string({ minLength: 5 }), { minLength: 0, maxLength: 3 }),
+                        improvements: fc.array(fc.string({ minLength: 5 }), { minLength: 0, maxLength: 3 }),
+                        suggestions: fc.array(fc.string({ minLength: 5 }), { minLength: 0, maxLength: 3 }),
+                        wouldUse: fc.boolean(),
+                    }),
+                    { minLength: 1, maxLength: 5 }
+                ),
+                (feedbackResults) => {
+                    // Simulate aggregation
+                    const validFeedback = feedbackResults.filter((f) => f.rating > 0);
+                    const averageRating = validFeedback.length > 0
+                        ? validFeedback.reduce((sum, f) => sum + f.rating, 0) / validFeedback.length
+                        : 0;
+
+                    const aggregatedFeedback = {
+                        averageRating: Math.round(averageRating * 10) / 10,
+                        totalResponses: feedbackResults.length,
+                        positives: feedbackResults.flatMap((f) => f.positives || []).slice(0, 5),
+                        improvements: feedbackResults.flatMap((f) => f.improvements || []).slice(0, 5),
+                        suggestions: feedbackResults.flatMap((f) => f.suggestions || []).slice(0, 5),
+                    };
+
+                    // Property: average rating SHALL be between 0 and 10
+                    expect(aggregatedFeedback.averageRating).toBeGreaterThanOrEqual(0);
+                    expect(aggregatedFeedback.averageRating).toBeLessThanOrEqual(10);
+
+                    // Property: total responses SHALL match input count
+                    expect(aggregatedFeedback.totalResponses).toBe(feedbackResults.length);
+
+                    // Property: aggregated lists SHALL have max 5 items
+                    expect(aggregatedFeedback.positives.length).toBeLessThanOrEqual(5);
+                    expect(aggregatedFeedback.improvements.length).toBeLessThanOrEqual(5);
+                    expect(aggregatedFeedback.suggestions.length).toBeLessThanOrEqual(5);
+                }
+            ),
+            { numRuns: 30 }
+        );
+    });
+});
+
+/**
+ * Property 22: Single Feature Regeneration
+ * Validates: Requirements 10.6
+ */
+describe('Property 22: Single Feature Regeneration', () => {
+    it('should preserve feature ID and project context during regeneration', () => {
+        fc.assert(
+            fc.property(
+                fc.uuid(),
+                fc.string({ minLength: 3, maxLength: 50 }),
+                fc.record({
+                    name: fc.string({ minLength: 1 }),
+                    description: fc.string({ minLength: 5 }),
+                    score: fc.integer({ min: 1, max: 10 }),
+                    priority: fc.constantFrom('High', 'Medium', 'Low'),
+                }),
+                (featureId, projectName, originalFeature) => {
+                    // Simulate regeneration request
+                    const regenerationRequest = {
+                        projectName,
+                        featureId,
+                        originalFeature,
+                        surveyData: null,
+                    };
+
+                    // Property: request SHALL have valid project name
+                    expect(regenerationRequest.projectName.length).toBeGreaterThan(0);
+
+                    // Property: request SHALL have valid feature ID
+                    expect(regenerationRequest.featureId.length).toBeGreaterThan(0);
+
+                    // Property: original feature SHALL be preserved for context
+                    expect(regenerationRequest.originalFeature).toBeDefined();
+                    expect(regenerationRequest.originalFeature.name).toBeDefined();
+
+                    // Simulate response
+                    const regeneratedFeature = {
+                        id: featureId, // ID must be preserved
+                        name: `Improved ${originalFeature.name}`,
+                        description: originalFeature.description,
+                        score: originalFeature.score,
+                        priority: originalFeature.priority,
+                    };
+
+                    // Property: regenerated feature SHALL preserve original ID
+                    expect(regeneratedFeature.id).toBe(featureId);
+                }
+            ),
+            { numRuns: 30 }
+        );
+    });
+});

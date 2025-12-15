@@ -15,6 +15,7 @@ import {
   InputValidator,
   ErrorSanitizer,
   PersonaStorage,
+  TokenMonitor,
 } from './shared/services';
 
 // Core services
@@ -104,13 +105,35 @@ export function activate(context: vscode.ExtensionContext) {
   const container = new Container();
 
   // Register shared services
-  container.register('tokenStorageService', () => new TokenStorageService(context.secrets));
+  container.register('tokenStorageService', () => {
+    const service = new TokenStorageService(context.secrets);
+    // Set globalState for token usage persistence
+    service.setGlobalState(context.globalState);
+    return service;
+  });
 
   container.register('inputValidator', () => new InputValidator());
 
   container.register('errorSanitizer', () => new ErrorSanitizer());
 
   container.register('personaStorage', () => new PersonaStorage(context));
+
+  // Register TokenMonitor for LLM token usage tracking
+  // This will be lazy-initialized when SettingsService is available
+  let tokenMonitorInstance: TokenMonitor | null = null;
+  container.register('tokenMonitor', () => {
+    if (!tokenMonitorInstance) {
+      const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
+      const settingsService = container.resolve<SettingsService>('settingsService');
+      tokenMonitorInstance = new TokenMonitor(tokenStorageService, settingsService);
+      // Initialize asynchronously
+      tokenMonitorInstance.initialize().catch(err => {
+        console.error('[Personaut] Failed to initialize TokenMonitor:', err);
+      });
+      console.log('[Personaut] TokenMonitor initialized');
+    }
+    return tokenMonitorInstance;
+  });
 
   // Register storage implementations
   container.register<ConversationStorage>('conversationStorage', () => ({
@@ -163,7 +186,9 @@ export function activate(context: vscode.ExtensionContext) {
   container.register('stageManager', () => {
     try {
       const workspaceRoot = getWorkspaceRoot();
-      return new StageManager(workspaceRoot);
+      // Always use .personaut subdirectory within workspace
+      const personautDir = vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), '.personaut').fsPath;
+      return new StageManager(personautDir);
     } catch (error) {
       console.warn('[Personaut] No workspace folder open, using default path');
       return new StageManager('.personaut');
@@ -173,7 +198,9 @@ export function activate(context: vscode.ExtensionContext) {
   container.register('buildLogManager', () => {
     try {
       const workspaceRoot = getWorkspaceRoot();
-      return new BuildLogManager(workspaceRoot);
+      // Always use .personaut subdirectory within workspace
+      const personautDir = vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), '.personaut').fsPath;
+      return new BuildLogManager(personautDir);
     } catch (error) {
       console.warn('[Personaut] No workspace folder open, using default path');
       return new BuildLogManager('.personaut');
@@ -199,6 +226,13 @@ export function activate(context: vscode.ExtensionContext) {
       // This will be updated with the real webview when SidebarProvider is ready
       const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
       const conversationManager = container.resolve<ConversationManager>('conversationManager');
+      // Resolve tokenMonitor for token usage tracking
+      let tokenMonitor: TokenMonitor | undefined;
+      try {
+        tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+      } catch {
+        console.warn('[Extension] TokenMonitor not available, token tracking disabled');
+      }
 
       // Create a minimal mock webview for initialization
       const mockWebview = {
@@ -214,6 +248,7 @@ export function activate(context: vscode.ExtensionContext) {
         webview: mockWebview,
         tokenStorageService,
         conversationManager,
+        tokenMonitor,
       });
       console.log('[Extension] AgentManager initialized with mock webview');
     }
@@ -304,11 +339,19 @@ export function activate(context: vscode.ExtensionContext) {
         console.log('[Extension] Initializing AgentManager with webview');
         const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
         const conversationManager = container.resolve<ConversationManager>('conversationManager');
+        // Resolve tokenMonitor for token usage tracking
+        let tokenMonitor: TokenMonitor | undefined;
+        try {
+          tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+        } catch {
+          console.warn('[Extension] TokenMonitor not available, token tracking disabled');
+        }
 
         agentManagerInstance = new AgentManager({
           webview,
           tokenStorageService,
           conversationManager,
+          tokenMonitor,
         });
         console.log('[Extension] AgentManager initialized successfully');
       } else {
@@ -342,6 +385,74 @@ export function activate(context: vscode.ExtensionContext) {
       await context.globalState.update('conversations', undefined);
       await context.globalState.update('feedbackHistory', undefined);
       vscode.window.showInformationMessage('Personaut cache cleared');
+    })
+  );
+
+  // Token management commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand('personaut.resetTokenUsage', async () => {
+      try {
+        const tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+        // Use 'global' as a default conversation ID for command-based reset
+        // Users can also reset via the webview for conversation-specific resets
+        const conversationId = 'global';
+
+        await tokenMonitor.resetUsage(conversationId);
+        vscode.window.showInformationMessage('Token usage has been reset.');
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`Failed to reset token usage: ${error.message}`);
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('personaut.viewTokenUsage', async () => {
+      try {
+        const tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+        const conversationId = 'global';
+
+        const usage = tokenMonitor.getUsage(conversationId);
+        const limit = await tokenMonitor.getEffectiveLimit(conversationId);
+        const percentUsed = limit > 0 ? Math.round((usage.totalTokens / limit) * 100) : 0;
+
+        vscode.window.showInformationMessage(
+          `Token Usage: ${usage.totalTokens.toLocaleString()} / ${limit.toLocaleString()} (${percentUsed}%)\n` +
+          `Input: ${usage.inputTokens.toLocaleString()} | Output: ${usage.outputTokens.toLocaleString()}`
+        );
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`Failed to view token usage: ${error.message}`);
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('personaut.setConversationLimit', async () => {
+      try {
+        const tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+        const conversationId = 'global';
+
+        const currentLimit = await tokenMonitor.getEffectiveLimit(conversationId);
+
+        const input = await vscode.window.showInputBox({
+          prompt: 'Enter new token limit',
+          value: currentLimit.toString(),
+          validateInput: (value) => {
+            const num = parseInt(value, 10);
+            if (isNaN(num) || num < 1) {
+              return 'Please enter a valid positive number';
+            }
+            return null;
+          },
+        });
+
+        if (input) {
+          const newLimit = parseInt(input, 10);
+          await tokenMonitor.setConversationLimit(conversationId, newLimit);
+          vscode.window.showInformationMessage(`Token limit set to ${newLimit.toLocaleString()}.`);
+        }
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`Failed to set conversation limit: ${error.message}`);
+      }
     })
   );
 

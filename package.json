@@ -3,7 +3,7 @@
   "publisher": "personaut",
   "displayName": "Personaut",
   "description": "Personaut AI Coding Assistant",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "license": "Apache-2.0",
   "icon": "media/assets/personaut-logo.png",
   "repository": {
@@ -56,7 +56,7 @@
         {
           "type": "webview",
           "id": "personaut.chatView",
-          "name": "Chat",
+          "name": "AI",
           "icon": "media/assets/personaut-icon.png"
         }
       ]

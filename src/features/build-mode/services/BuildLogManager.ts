@@ -57,8 +57,21 @@ export class BuildLogManager {
       }
 
       return parsed;
-    } catch (error) {
-      console.warn(`[BuildLogManager] Failed to read build log for ${projectName}:`, error);
+    } catch (error: any) {
+      console.warn(`[BuildLogManager] Failed to read build log for ${projectName}:`, error.message);
+
+      // If JSON is corrupted, backup the file and return null
+      // This allows appendLogEntry to create a fresh log
+      if (error instanceof SyntaxError && fs.existsSync(filePath)) {
+        const backupPath = `${filePath}.corrupted.${Date.now()}`;
+        try {
+          await fs.promises.rename(filePath, backupPath);
+          console.warn(`[BuildLogManager] Corrupted build log backed up to: ${backupPath}`);
+        } catch (backupError: any) {
+          console.error(`[BuildLogManager] Failed to backup corrupted log:`, backupError.message);
+        }
+      }
+
       return null;
     }
   }

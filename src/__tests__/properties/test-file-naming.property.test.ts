@@ -77,9 +77,28 @@ describe('Property 6: Test File Naming', () => {
       baseName = fileName.replace('.spec.tsx', '.tsx');
     }
 
-    // Check if corresponding source file exists
+    // Check if corresponding source file exists in the same directory
     const sourceFilePath = path.join(dir, baseName);
-    return fs.existsSync(sourceFilePath);
+    if (fs.existsSync(sourceFilePath)) {
+      return true;
+    }
+
+    // If test is in __tests__ directory, check sibling directories
+    if (dir.includes('__tests__')) {
+      const parentDir = path.dirname(dir);
+      const siblingDirs = ['services', 'handlers', 'types', 'components', ''];
+
+      for (const siblingDir of siblingDirs) {
+        const siblingPath = siblingDir
+          ? path.join(parentDir, siblingDir, baseName)
+          : path.join(parentDir, baseName);
+        if (fs.existsSync(siblingPath)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**

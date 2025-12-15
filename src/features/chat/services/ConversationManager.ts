@@ -6,6 +6,12 @@
  * - Pagination for large conversations
  * - Dynamic title updates based on conversation content
  *
+ * TODO: Replace globalState storage with file-based storage
+ * - Add user-configurable storage path in settings
+ * - On first install, prompt user to set storage location
+ * - Store conversations as individual JSON files on disk
+ * - This will eliminate the VS Code globalState size warning
+ *
  * Feature: feature-based-architecture
  * Validates: Requirements 2.2, 2.3
  */
@@ -24,6 +30,10 @@ import {
 const STORAGE_KEY = 'conversationHistory';
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_TITLE_LENGTH = 50;
+/** Max conversations to keep in globalState to prevent storage bloat */
+const MAX_STORED_CONVERSATIONS = 20;
+/** Max messages per conversation to prevent individual conversations from bloating */
+const MAX_MESSAGES_PER_CONVERSATION = 100;
 
 
 
@@ -65,7 +75,7 @@ interface LoadAllResult {
 }
 
 export class ConversationManager {
-  constructor(private readonly storage: ConversationStorage) {}
+  constructor(private readonly storage: ConversationStorage) { }
 
   /**
    * Get all conversations from storage
@@ -125,7 +135,7 @@ export class ConversationManager {
 
     // Migrate V1 to V2
     const v1Data = data as ConversationV1;
-    
+
     const v2Data: ConversationV2 = {
       version: 2,
       id: v1Data.id,
@@ -230,17 +240,29 @@ export class ConversationManager {
    * Validates: Requirements 11.2
    */
   async saveConversation(id: string, messages: Message[]): Promise<Conversation> {
-    const conversations = this.getConversations();
+    let conversations = this.getConversations();
     const existingIndex = conversations.findIndex((c) => c.id === id);
 
+    // Trim messages to prevent individual conversations from bloating
+    // Keep only the most recent messages
+    const trimmedMessages = messages.length > MAX_MESSAGES_PER_CONVERSATION
+      ? messages.slice(-MAX_MESSAGES_PER_CONVERSATION)
+      : messages;
+
     // Generate dynamic title based on content
-    const title = this.generateTitle(messages);
+    // Use original messages for title generation to preserve first user message even if trimmed
+    // If this is an existing conversation and messages were trimmed, preserve the original title
+    const existingTitle = existingIndex !== -1 ? conversations[existingIndex].title : null;
+    const wasTrimmed = messages.length > MAX_MESSAGES_PER_CONVERSATION;
+    const title = (wasTrimmed && existingTitle && existingTitle !== 'New Conversation')
+      ? existingTitle
+      : this.generateTitle(messages); // Use original messages for title
 
     const conversation: Conversation = {
       id,
       title,
       timestamp: existingIndex !== -1 ? conversations[existingIndex].timestamp : Date.now(),
-      messages,
+      messages: trimmedMessages,
       lastUpdated: Date.now(),
     };
 
@@ -248,6 +270,13 @@ export class ConversationManager {
       conversations[existingIndex] = conversation;
     } else {
       conversations.unshift(conversation);
+    }
+
+    // Prune old conversations to prevent globalState bloat
+    // Keep only the most recent MAX_STORED_CONVERSATIONS
+    if (conversations.length > MAX_STORED_CONVERSATIONS) {
+      console.log(`[ConversationManager] Pruning ${conversations.length - MAX_STORED_CONVERSATIONS} old conversations`);
+      conversations = conversations.slice(0, MAX_STORED_CONVERSATIONS);
     }
 
     // Save with retry logic: 3 attempts with exponential backoff (1s, 2s, 4s)

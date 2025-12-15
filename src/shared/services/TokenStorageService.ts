@@ -1,14 +1,17 @@
 import * as vscode from 'vscode';
+import { TokenUsage, StoredTokenUsage } from '../types/TokenMonitorTypes';
 
 /**
  * Service for securely storing API keys using VS Code's SecretStorage API.
- * This ensures API keys are encrypted and not stored in plain text configuration.
+ * Also handles token usage persistence in globalState.
  *
- * Feature: feature-based-architecture
- * Validates: Requirements 8.3
+ * Feature: feature-based-architecture, llm-token-monitoring
+ * Validates: Requirements 8.3, 1.3, 4.4, 7.5
  */
 export class TokenStorageService {
   private static readonly KEY_PREFIX = 'personaut.apiKey.';
+  private static readonly TOKEN_USAGE_KEY = 'personaut.tokenUsage';
+  private globalState: vscode.Memento | null = null;
 
   // Known API key configuration keys that need migration
   private static readonly LEGACY_CONFIG_KEYS: Record<string, string> = {
@@ -193,6 +196,114 @@ export class TokenStorageService {
       awsSecretKey,
       awsSessionToken,
     };
+  }
+
+  /**
+   * Set the globalState reference for token usage persistence.
+   * Must be called during extension activation.
+   *
+   * @param globalState - The VS Code global state memento
+   */
+  setGlobalState(globalState: vscode.Memento): void {
+    this.globalState = globalState;
+  }
+
+  /**
+   * Get token usage for a specific conversation.
+   *
+   * @param conversationId - The conversation identifier
+   * @returns Token usage data or null if not found
+   */
+  async getTokenUsage(conversationId: string): Promise<TokenUsage | null> {
+    if (!this.globalState) {
+      console.warn('[TokenStorageService] GlobalState not initialized');
+      return null;
+    }
+
+    const allUsage = this.globalState.get<StoredTokenUsage>(
+      TokenStorageService.TOKEN_USAGE_KEY,
+      {}
+    );
+
+    const usage = allUsage[conversationId];
+    if (!usage) {
+      return null;
+    }
+
+    return {
+      conversationId,
+      totalTokens: usage.totalTokens,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      lastUpdated: usage.lastUpdated,
+      limit: usage.limit,
+    };
+  }
+
+  /**
+   * Save token usage for a specific conversation.
+   *
+   * @param conversationId - The conversation identifier
+   * @param usage - The token usage data to save
+   */
+  async saveTokenUsage(conversationId: string, usage: TokenUsage): Promise<void> {
+    if (!this.globalState) {
+      console.warn('[TokenStorageService] GlobalState not initialized');
+      return;
+    }
+
+    const allUsage = this.globalState.get<StoredTokenUsage>(
+      TokenStorageService.TOKEN_USAGE_KEY,
+      {}
+    );
+
+    allUsage[conversationId] = {
+      totalTokens: usage.totalTokens,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      lastUpdated: usage.lastUpdated,
+      limit: usage.limit,
+    };
+
+    await this.globalState.update(TokenStorageService.TOKEN_USAGE_KEY, allUsage);
+  }
+
+  /**
+   * Clear token usage for a specific conversation.
+   *
+   * @param conversationId - The conversation identifier
+   */
+  async clearTokenUsage(conversationId: string): Promise<void> {
+    if (!this.globalState) {
+      console.warn('[TokenStorageService] GlobalState not initialized');
+      return;
+    }
+
+    const allUsage = this.globalState.get<StoredTokenUsage>(
+      TokenStorageService.TOKEN_USAGE_KEY,
+      {}
+    );
+
+    delete allUsage[conversationId];
+
+    await this.globalState.update(TokenStorageService.TOKEN_USAGE_KEY, allUsage);
+  }
+
+  /**
+   * Get all token usage data.
+   *
+   * @returns All stored token usage data
+   */
+  async getAllTokenUsage(): Promise<StoredTokenUsage> {
+    if (!this.globalState) {
+      console.warn('[TokenStorageService] GlobalState not initialized');
+      return {};
+    }
+
+    return this.globalState.get<StoredTokenUsage>(
+      TokenStorageService.TOKEN_USAGE_KEY,
+      {}
+    );
   }
 }
 

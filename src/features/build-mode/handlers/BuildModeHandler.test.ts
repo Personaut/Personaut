@@ -107,6 +107,7 @@ describe('BuildModeHandler', () => {
         type: 'stage-file-saved',
         projectName: 'test-project',
         stage: 'users',
+        completed: false,
         success: true,
       });
     });
@@ -118,17 +119,24 @@ describe('BuildModeHandler', () => {
         stage: 'users',
       };
 
-      const mockData = { personas: [{ name: 'User 1' }] };
-      mockBuildModeService.loadStage.mockResolvedValue(mockData);
+      // Mock the full StageFile returned by stageManager.readStageFile
+      const mockStageFile = {
+        stage: 'users',
+        completed: false,
+        timestamp: Date.now(),
+        data: { personas: [{ name: 'User 1' }] },
+        version: '1.0',
+      };
+      mockStageManager.readStageFile = jest.fn().mockResolvedValue(mockStageFile);
 
       await buildModeHandler.handle(message, mockWebview);
 
-      expect(mockBuildModeService.loadStage).toHaveBeenCalledWith('test-project', 'users');
+      expect(mockStageManager.readStageFile).toHaveBeenCalledWith('test-project', 'users');
       expect(mockWebview.postMessage).toHaveBeenCalledWith({
         type: 'stage-file-loaded',
         projectName: 'test-project',
         stage: 'users',
-        data: mockData,
+        data: mockStageFile,
       });
     });
 

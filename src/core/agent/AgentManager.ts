@@ -17,6 +17,7 @@ import { Agent } from './Agent';
 import { AgentMode, AgentConfig } from './AgentTypes';
 import { Message } from '../providers/IProvider';
 import { TokenStorageService } from '../../shared/services/TokenStorageService';
+import { TokenMonitor } from '../../shared/services/TokenMonitor';
 import { ConversationManager } from '../../features/chat/services/ConversationManager';
 import { Settings } from '../../features/settings/types/SettingsTypes';
 import {
@@ -32,6 +33,7 @@ export interface AgentManagerConfig {
   webview: vscode.Webview;
   tokenStorageService: TokenStorageService;
   conversationManager: ConversationManager;
+  tokenMonitor?: TokenMonitor; // For token usage tracking
   maxActiveAgents?: number;
   inactivityTimeout?: number;
 }
@@ -86,7 +88,7 @@ export class AgentManager {
     this.config = config;
     this.maxActiveAgents = config.maxActiveAgents || 10;
     this.inactivityTimeout = config.inactivityTimeout || 300000; // 5 minutes default
-    
+
     console.log('[AgentManager] Initialized with config:', {
       maxActiveAgents: this.maxActiveAgents,
       inactivityTimeout: this.inactivityTimeout,
@@ -126,7 +128,7 @@ export class AgentManager {
 
       // Log error but don't crash - requirement 2.5
       console.error('[AgentManager] Failed to save conversation:', agentError.toJSON());
-      
+
       // Don't throw - we want to continue operating even if save fails
       // The error is logged with full context for debugging
     }
@@ -179,7 +181,8 @@ export class AgentManager {
       const agent = new Agent(
         this.config.webview,
         agentConfig,
-        this.config.tokenStorageService
+        this.config.tokenStorageService,
+        this.config.tokenMonitor // Pass token monitor for usage tracking
       );
 
       // Register agent with message queue
@@ -474,7 +477,7 @@ export class AgentManager {
     // In a single-user VS Code extension, all agents belong to the same session
     // This is a placeholder for future multi-session support
     // For now, all active agents can communicate with each other
-    
+
     console.log('[AgentManager] Agent-to-agent communication validated:', {
       from: fromConversationId,
       to: toConversationId,
@@ -491,17 +494,17 @@ export class AgentManager {
    * Validates: Requirements 7.1, 7.4
    */
   private startPeriodicCleanup(): void {
+    // Prevent multiple cleanup intervals
+    if (this.cleanupInterval) {
+      return;
+    }
+
     // Run cleanup every 5 minutes
     const cleanupIntervalMs = 5 * 60 * 1000;
-    
+
     this.cleanupInterval = setInterval(async () => {
-      console.log('[AgentManager] Running periodic cleanup');
       await this.cleanupInactiveAgents();
     }, cleanupIntervalMs);
-
-    console.log('[AgentManager] Periodic cleanup started:', {
-      intervalMs: cleanupIntervalMs,
-    });
   }
 
   /**
@@ -535,7 +538,7 @@ export class AgentManager {
     }
 
     if (inactiveAgents.length === 0) {
-      console.log('[AgentManager] No inactive agents to clean up');
+      // No inactive agents to clean up - skip silently
       return;
     }
 
@@ -845,7 +848,7 @@ export class AgentManager {
     });
 
     const entry = this.agents.get(conversationId);
-    
+
     // If agent exists, abort it first
     if (entry) {
       try {
@@ -910,7 +913,7 @@ export class AgentManager {
     capabilities: AgentCapability[];
   } | null> {
     const entry = this.agents.get(conversationId);
-    
+
     if (!entry) {
       console.warn('[AgentManager] Cannot preserve state: agent not found:', conversationId);
       return null;
@@ -1151,7 +1154,7 @@ export class AgentManager {
         // Formula: delay = baseDelay * 2^(attempt-1)
         // This creates increasing delays: 1s, 2s, 4s, 8s, etc.
         const delay = baseDelay * Math.pow(2, attempt - 1);
-        
+
         console.log('[AgentManager] Retrying operation after delay:', {
           operationName,
           attempt,
@@ -1280,13 +1283,13 @@ export class AgentManager {
    */
   async dispose(): Promise<void> {
     console.log('[AgentManager] Disposing AgentManager');
-    
+
     // Stop periodic cleanup
     this.stopPeriodicCleanup();
-    
+
     // Dispose all agents
     await this.disposeAllAgents();
-    
+
     console.log('[AgentManager] AgentManager disposed');
   }
 }

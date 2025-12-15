@@ -20,6 +20,7 @@ import { ContentStreamer } from '../services/ContentStreamer';
 import { BuildLogManager } from '../services/BuildLogManager';
 import { StageName, STAGE_ORDER } from '../types/BuildModeTypes';
 import { PersonasService } from '../../personas/services/PersonasService';
+import { parseJson, createReparsePrompt } from '../../../shared/utils/JsonParser';
 
 export class BuildModeHandler implements IFeatureHandler {
   private readonly errorSanitizer: ErrorSanitizer;
@@ -65,6 +66,47 @@ export class BuildModeHandler implements IFeatureHandler {
     }
     if (!this.VALID_STAGES.includes(stage)) {
       throw new Error(`Invalid stage name: ${stage}`);
+    }
+  }
+
+  /**
+   * Attempt to repair broken JSON using LLM (one attempt only).
+   * Called when parseJson fails to extract valid JSON.
+   * @param originalText - The text that failed to parse
+   * @param error - The parse error message
+   * @param projectName - Project name for creating the repair agent
+   * @returns Parsed data if successful, null if repair fails
+   */
+  private async attemptLlmJsonRepair(
+    originalText: string,
+    error: string,
+    projectName: string
+  ): Promise<any | null> {
+    console.log('[BuildModeHandler] Attempting LLM JSON repair...');
+
+    const repairPrompt = createReparsePrompt(originalText, error);
+
+    try {
+      // Use buildModeService to generate content with the repair prompt
+      const repairedContent = await this.buildModeService.generateStageContent(
+        projectName,
+        'json-repair',
+        repairPrompt
+      );
+
+      if (repairedContent) {
+        const repairResult = parseJson(repairedContent);
+        if (repairResult.success && repairResult.data) {
+          console.log('[BuildModeHandler] LLM JSON repair successful');
+          return repairResult.data;
+        }
+      }
+
+      console.warn('[BuildModeHandler] LLM JSON repair failed - no valid JSON returned');
+      return null;
+    } catch (repairError: any) {
+      console.error('[BuildModeHandler] LLM JSON repair error:', repairError.message);
+      return null;
     }
   }
 
@@ -144,6 +186,12 @@ export class BuildModeHandler implements IFeatureHandler {
         case 'load-iteration-data':
           await this.handleLoadIterationData(message, webview);
           break;
+        case 'save-ux-specs':
+          await this.handleSaveUxSpecs(message, webview);
+          break;
+        case 'save-file-content':
+          await this.handleSaveFileContent(message, webview);
+          break;
         // Persona generation handlers (Task 12)
         case 'generate-personas-from-demographics':
           await this.handleGeneratePersonasFromDemographics(message, webview);
@@ -167,6 +215,45 @@ export class BuildModeHandler implements IFeatureHandler {
           break;
         case 'generate-features-from-interviews':
           await this.handleGenerateFeaturesFromInterviews(message, webview);
+          break;
+        // Research workflow handler (Task 18)
+        case 'start-research-workflow':
+          await this.handleStartResearchWorkflow(message, webview);
+          break;
+        // Feature regeneration handler (Task 14.4)
+        case 'regenerate-single-feature':
+          await this.handleRegenerateSingleFeature(message, webview);
+          break;
+        // Building workflow handler (Task 21)
+        case 'start-building-workflow':
+          await this.handleStartBuildingWorkflow(message, webview);
+          break;
+        // Workflow pause/resume handlers (Task 21.11)
+        case 'pause-building-workflow':
+          await this.handlePauseBuildingWorkflow(message, webview);
+          break;
+        case 'resume-building-workflow':
+          await this.handleResumeBuildingWorkflow(message, webview);
+          break;
+        // Initialize building stage (create folder + init framework)
+        case 'initialize-building':
+          await this.handleInitializeBuilding(message, webview);
+          break;
+        // Survey response saving (for individual interview responses)
+        case 'save-survey-response':
+          await this.handleSaveSurveyResponse(message, webview);
+          break;
+        // Save page iteration data (UX specs, developer output, feedback, screenshot)
+        case 'save-page-iteration':
+          await this.handleSavePageIteration(message, webview);
+          break;
+        // Load all iterations for a page
+        case 'load-page-iterations':
+          await this.handleLoadPageIterations(message, webview);
+          break;
+        // Cancel multi-agent operations
+        case 'cancel-operation':
+          await this.handleCancelOperation(message, webview);
           break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
@@ -212,10 +299,35 @@ export class BuildModeHandler implements IFeatureHandler {
     this.validateProjectName(message.projectName);
     this.validateStageName(message.stage);
 
+    let dataToSave = message.data || {};
+
+    // For design stage, merge with existing data to prevent losing pages/userFlows
+    if (message.stage === 'design') {
+      const existingData = (await this.buildModeService.loadStage(message.projectName, 'design') || {}) as any;
+      const newData = dataToSave as any;
+
+      // Only use new pages/userFlows if they are non-empty arrays
+      const pagesAreValid = Array.isArray(newData.pages) && newData.pages.length > 0;
+      const flowsAreValid = Array.isArray(newData.userFlows) && newData.userFlows.length > 0;
+
+      dataToSave = {
+        ...existingData,
+        ...newData,
+        // Preserve existing pages if new ones are empty
+        pages: pagesAreValid ? newData.pages : (existingData.pages || []),
+        // Preserve existing flows if new ones are empty
+        userFlows: flowsAreValid ? newData.userFlows : (existingData.userFlows || []),
+        // Preserve framework
+        framework: newData.framework || existingData.framework,
+      };
+
+      console.log(`[BuildModeHandler] Design save merge - pages: ${dataToSave.pages?.length}, flows: ${dataToSave.userFlows?.length}`);
+    }
+
     await this.buildModeService.saveStage(
       message.projectName,
       message.stage,
-      message.data || {},
+      dataToSave,
       message.completed || false
     );
 
@@ -223,12 +335,15 @@ export class BuildModeHandler implements IFeatureHandler {
       type: 'stage-file-saved',
       projectName: message.projectName,
       stage: message.stage,
+      completed: message.completed || false,
       success: true,
     });
   }
 
   /**
    * Handle load stage file request.
+   * Returns the full StageFile object (with data, completed, timestamp fields)
+   * so the webview can access both content and metadata.
    */
   private async handleLoadStageFile(message: WebviewMessage, webview: any): Promise<void> {
     if (!message.projectName || !message.stage) {
@@ -239,13 +354,16 @@ export class BuildModeHandler implements IFeatureHandler {
     this.validateProjectName(message.projectName);
     this.validateStageName(message.stage);
 
-    const data = await this.buildModeService.loadStage(message.projectName, message.stage);
+    // Use stageManager.readStageFile directly to get the full StageFile object
+    // (not buildModeService.loadStage which only returns the inner data)
+    // The webview expects: data.data for content, data.completed for status
+    const stageFile = await this.stageManager.readStageFile(message.projectName, message.stage);
 
     webview.postMessage({
       type: 'stage-file-loaded',
       projectName: message.projectName,
       stage: message.stage,
-      data,
+      data: stageFile, // Full StageFile object with { data, completed, timestamp, stage, version }
     });
   }
 
@@ -306,18 +424,75 @@ export class BuildModeHandler implements IFeatureHandler {
       // Try to parse as JSON if the stage expects structured data
       let parsedData = generatedContent;
       if (message.stage !== 'idea') {
-        try {
-          // Extract JSON from code blocks if present
-          const jsonMatch = generatedContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-          if (jsonMatch) {
-            parsedData = JSON.parse(jsonMatch[1]);
-          } else {
-            parsedData = JSON.parse(generatedContent);
+        const parseResult = parseJson(generatedContent);
+        if (parseResult.success && parseResult.data) {
+          parsedData = parseResult.data;
+          if (parseResult.wasRepaired) {
+            console.log(`[BuildModeHandler] JSON was repaired for stage ${message.stage}`);
           }
-        } catch {
-          // Keep as string if not valid JSON
-          parsedData = generatedContent;
+        } else {
+          // Initial parse failed - try LLM repair (one attempt)
+          console.warn(`[BuildModeHandler] Initial parse failed for stage ${message.stage}: ${parseResult.error}`);
+          const repairedData = await this.attemptLlmJsonRepair(
+            generatedContent,
+            parseResult.error || 'Unknown parse error',
+            message.projectName
+          );
+          if (repairedData) {
+            parsedData = repairedData;
+            console.log(`[BuildModeHandler] LLM repair succeeded for stage ${message.stage}`);
+          } else {
+            // Keep as string if repair also failed
+            console.warn(`[BuildModeHandler] LLM repair failed, keeping as string for stage ${message.stage}`);
+            parsedData = generatedContent;
+          }
         }
+      }
+
+      // Special handling for design stage - merge with existing data
+      if (message.stage === 'design' && typeof parsedData === 'object' && parsedData !== null) {
+        // Cast to any for dynamic property access
+        const designData = parsedData as any;
+
+        // Load existing design data to merge with
+        const existingData = (await this.buildModeService.loadStage(message.projectName, 'design') || {}) as any;
+
+        // Normalize screens to pages key
+        if (designData.screens && !designData.pages) {
+          designData.pages = designData.screens.map((s: any, i: number) => ({
+            id: s.id || `page-${i + 1}-${Date.now()}`,
+            name: s.name || `Page ${i + 1}`,
+            purpose: s.purpose || s.description || '',
+            uiElements: Array.isArray(s.uiElements) ? s.uiElements : [],
+            userActions: Array.isArray(s.userActions) ? s.userActions : [],
+          }));
+          delete designData.screens;
+        }
+
+        // Normalize flows key to userFlows (AI might return 'flows' instead of 'userFlows')
+        if (designData.flows && !designData.userFlows) {
+          designData.userFlows = designData.flows.map((f: any, i: number) => ({
+            id: f.id || `flow-${i + 1}-${Date.now()}`,
+            name: f.name || `User Flow ${i + 1}`,
+            description: f.description || '',
+            steps: Array.isArray(f.steps) ? f.steps : [],
+          }));
+          delete designData.flows;
+        }
+
+        // Merge: new data takes precedence, but preserve unmodified fields
+        parsedData = {
+          ...existingData,
+          ...designData,
+          // If new data has pages, use them; otherwise keep existing
+          pages: designData.pages || existingData.pages || [],
+          // If new data has userFlows, use them; otherwise keep existing
+          userFlows: designData.userFlows || existingData.userFlows || [],
+          // Preserve framework
+          framework: designData.framework || existingData.framework,
+        };
+
+        console.log(`[BuildModeHandler] Design stage merge - pages: ${(parsedData as any).pages?.length}, flows: ${(parsedData as any).userFlows?.length}`);
       }
 
       // Save the generated content to the stage file
@@ -382,6 +557,15 @@ export class BuildModeHandler implements IFeatureHandler {
     this.validateProjectName(message.projectName);
 
     const buildState = await this.buildModeService.getBuildState(message.projectName);
+
+    // If project doesn't exist (files deleted), notify webview to clear stale state
+    if (!buildState) {
+      webview.postMessage({
+        type: 'project-not-found',
+        projectName: message.projectName,
+      });
+      return;
+    }
 
     webview.postMessage({
       type: 'build-state',
@@ -634,70 +818,221 @@ export class BuildModeHandler implements IFeatureHandler {
 
   /**
    * Handle capture screenshot request.
+   * Starts dev server, waits for it, captures screenshot, then kills server.
    */
   private async handleCaptureScreenshot(message: WebviewMessage, webview: any): Promise<void> {
-    const url = message.url;
+    const url = message.url || 'http://localhost:5173';
+    const projectPath = message.projectPath;
 
-    if (!url) {
-      webview.postMessage({
-        type: 'screenshot-error',
-        error: 'URL is required for screenshot capture',
-      });
-      return;
-    }
+    console.log('[BuildModeHandler] Screenshot capture requested:', { url, projectPath });
 
-    // Validate URL
-    const validation = this.inputValidator.validateInput(url);
-    if (!validation.valid) {
-      webview.postMessage({
-        type: 'screenshot-error',
-        error: validation.reason || 'Invalid URL',
-        url,
-      });
-      return;
-    }
-
-    // Send status update
     webview.postMessage({
       type: 'screenshot-status',
-      status: 'capturing',
-      url,
+      status: 'starting',
+      message: 'Starting dev server...',
     });
 
-    let browser = null;
-    try {
-      // Dynamic import puppeteer
-      const puppeteer = require('puppeteer');
+    let devServerProcess: any = null;
+    let browser: any = null;
 
+    try {
+      const { spawn } = await import('child_process');
+      const http = await import('http');
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Get the project folder path
+      const workspacePath = await this.stageManager.getWorkspacePath();
+      const codeFolderName = message.codeFolderName; // Actual code folder name
+      const projectName = message.projectName; // Project identifier
+
+      // Project folder is workspace/codeFolderName (or projectName as fallback)
+      let serverCwd = projectPath;
+      if (!serverCwd && codeFolderName) {
+        // Use the code folder name (from Design stage)
+        serverCwd = path.join(workspacePath, codeFolderName);
+      } else if (!serverCwd && projectName) {
+        // Fallback to project name
+        serverCwd = path.join(workspacePath, projectName);
+      } else if (!serverCwd) {
+        serverCwd = workspacePath;
+      }
+
+      console.log('[BuildModeHandler] Resolved serverCwd:', { codeFolderName, projectName, serverCwd });
+
+      // Verify the path exists
+      if (!fs.existsSync(serverCwd)) {
+        throw new Error(`Project folder not found: ${serverCwd}`);
+      }
+
+      console.log('[BuildModeHandler] Starting dev server in:', serverCwd);
+
+      // Check if node_modules exists, if not run npm install first
+      const nodeModulesPath = path.join(serverCwd, 'node_modules');
+      if (!fs.existsSync(nodeModulesPath)) {
+        console.log('[BuildModeHandler] node_modules not found, running npm install...');
+        webview.postMessage({
+          type: 'screenshot-status',
+          status: 'installing',
+          message: 'Installing dependencies (npm install)...',
+        });
+
+        // Run npm install synchronously
+        const { execSync } = await import('child_process');
+        try {
+          execSync('npm install', {
+            cwd: serverCwd,
+            stdio: 'pipe',
+            env: { ...process.env },
+            timeout: 120000, // 2 minute timeout
+          });
+          console.log('[BuildModeHandler] npm install completed');
+        } catch (installError: any) {
+          console.error('[BuildModeHandler] npm install failed:', installError.message);
+          throw new Error(`npm install failed: ${installError.message}`);
+        }
+      }
+
+      // Read package.json to find the dev script
+      let devCommand = 'npm run dev'; // default
+      let devPort = 5173; // Vite default
+      try {
+        const packageJsonPath = path.join(serverCwd, 'package.json');
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        const scripts = packageJson.scripts || {};
+
+        // Determine the right command and port
+        if (scripts.dev) {
+          devCommand = 'npm run dev';
+          // Check if it's Next.js (port 3000)
+          if (scripts.dev.includes('next')) {
+            devPort = 3000;
+          }
+        } else if (scripts.start) {
+          devCommand = 'npm run start';
+          devPort = 3000;
+        } else if (scripts.serve) {
+          devCommand = 'npm run serve';
+        }
+
+        console.log('[BuildModeHandler] Found dev command:', devCommand, 'expected port:', devPort);
+      } catch (e) {
+        console.log('[BuildModeHandler] Could not read package.json, using default:', devCommand);
+      }
+
+      // Start dev server with detached process - run full command through shell
+      console.log('[BuildModeHandler] Running command:', devCommand, 'in', serverCwd);
+      devServerProcess = spawn(devCommand, [], {
+        cwd: serverCwd,
+        shell: true,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env }, // Inherit full environment including PATH
+      });
+
+      // Track if process exited early
+      let processExited = false;
+      let exitError = '';
+
+      devServerProcess.on('error', (err: Error) => {
+        console.error('[DevServer] Process error:', err.message);
+        processExited = true;
+        exitError = err.message;
+      });
+
+      // Capture stderr for error reporting
+      let stderrOutput = '';
+
+      // Log dev server output
+      devServerProcess.stdout?.on('data', (data: Buffer) => {
+        console.log('[DevServer]', data.toString().trim());
+      });
+      devServerProcess.stderr?.on('data', (data: Buffer) => {
+        const output = data.toString().trim();
+        console.log('[DevServer stderr]', output);
+        stderrOutput += output + '\n';
+      });
+
+      devServerProcess.on('exit', (code: number | null) => {
+        if (code !== null && code !== 0) {
+          console.error('[DevServer] Process exited with code:', code);
+          processExited = true;
+          // Include stderr in error message for better debugging
+          const errorDetails = stderrOutput ? `\nOutput: ${stderrOutput.slice(0, 500)}` : '';
+          exitError = `Process exited with code ${code}${errorDetails}`;
+        }
+      });
+
+      webview.postMessage({
+        type: 'screenshot-status',
+        status: 'waiting',
+        message: 'Waiting for dev server to be ready...',
+      });
+
+      // Use port from URL or fallback to detected port
+      const serverUrl = new URL(url);
+      const port = parseInt(serverUrl.port, 10) || devPort;
+      console.log('[BuildModeHandler] Checking server at:', serverUrl.hostname, 'port:', port);
+
+      // Poll until server is ready (max 30 seconds)
+      let serverReady = false;
+      const startTime = Date.now();
+      const timeout = 30000;
+
+      while (Date.now() - startTime < timeout && !serverReady && !processExited) {
+        await new Promise(r => setTimeout(r, 1000));
+        serverReady = await new Promise<boolean>((resolve) => {
+          const req = http.get({
+            hostname: serverUrl.hostname,
+            port: port,
+            path: '/',
+            timeout: 2000,
+          }, () => resolve(true));
+          req.on('error', () => resolve(false));
+          req.on('timeout', () => { req.destroy(); resolve(false); });
+        });
+      }
+
+      if (processExited) {
+        throw new Error(`Dev server process failed: ${exitError}`);
+      }
+
+      if (!serverReady) {
+        throw new Error(`Dev server not responding at ${url} after 30 seconds. Check that 'npm run dev' works in your project.`);
+      }
+
+      console.log('[BuildModeHandler] Dev server ready, capturing screenshot...');
+
+      webview.postMessage({
+        type: 'screenshot-status',
+        status: 'capturing',
+        message: 'Capturing screenshot...',
+      });
+
+      // Capture screenshot with Puppeteer
+      const puppeteer = require('puppeteer');
       browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       });
 
       const page = await browser.newPage();
-
-      // Set viewport for consistent screenshots
       await page.setViewport({ width: 1280, height: 800 });
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
-      // Navigate with timeout
-      await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: 30000,
-      });
-
-      // Take screenshot as base64
-      const screenshotBuffer = await page.screenshot({
-        type: 'png',
-        fullPage: false,
-      });
-
+      const screenshotBuffer = await page.screenshot({ type: 'png', fullPage: false });
       const base64Data = screenshotBuffer.toString('base64');
       const dataUrl = `data:image/png;base64,${base64Data}`;
+
+      console.log('[BuildModeHandler] Screenshot captured successfully');
 
       webview.postMessage({
         type: 'screenshot-captured',
         url,
         screenshot: dataUrl,
+        projectName: message.projectName,
+        screenName: message.screenName,
+        iterationNumber: message.iterationNumber,
       });
     } catch (error: any) {
       console.error('[BuildModeHandler] Screenshot capture error:', error);
@@ -707,12 +1042,23 @@ export class BuildModeHandler implements IFeatureHandler {
         url,
       });
     } finally {
+      // Always cleanup: kill dev server and close browser
       if (browser) {
         try {
           await browser.close();
+          console.log('[BuildModeHandler] Browser closed');
+        } catch { /* ignore */ }
+      }
+      if (devServerProcess) {
+        try {
+          // Kill the process tree (on macOS/Linux)
+          process.kill(-devServerProcess.pid);
         } catch {
-          // Ignore close errors
+          try {
+            devServerProcess.kill('SIGTERM');
+          } catch { /* ignore */ }
         }
+        console.log('[BuildModeHandler] Dev server killed');
       }
     }
   }
@@ -852,6 +1198,301 @@ export class BuildModeHandler implements IFeatureHandler {
       iterationNumber: message.iterationNumber,
       data: iterationData,
     });
+  }
+
+  /**
+   * Handle save UX specs request.
+   * Saves UX design specifications to iteration directory.
+   */
+  private async handleSaveUxSpecs(message: WebviewMessage, webview: any): Promise<void> {
+    this.validateProjectName(message.projectName);
+    this.validateIterationNumber(message.iterationNumber);
+
+    if (!message.pageName || typeof message.pageName !== 'string') {
+      throw new Error('Page name is required');
+    }
+
+    if (!message.specs) {
+      throw new Error('UX specs are required');
+    }
+
+    // Save UX specs to the iteration directory
+    const specsPath = await this.stageManager.saveUxSpecs(
+      message.projectName,
+      message.iterationNumber,
+      message.pageName,
+      message.specs
+    );
+
+    webview.postMessage({
+      type: 'ux-specs-saved',
+      projectName: message.projectName,
+      iterationNumber: message.iterationNumber,
+      pageName: message.pageName,
+      path: specsPath,
+    });
+  }
+
+  /**
+   * Handle save file content request.
+   * Saves arbitrary file content to the specified path within workspace.
+   */
+  private async handleSaveFileContent(message: WebviewMessage, webview: any): Promise<void> {
+    const { path: filePath, content } = message;
+
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('File path is required');
+    }
+
+    if (content === undefined || content === null) {
+      throw new Error('File content is required');
+    }
+
+    // Security: Only allow saving within .personaut directory
+    if (!filePath.startsWith('.personaut/')) {
+      throw new Error('Can only save files within .personaut directory');
+    }
+
+    // Security: Prevent path traversal
+    if (filePath.includes('..')) {
+      throw new Error('Path traversal is not allowed');
+    }
+
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const vscode = await import('vscode');
+
+      // Get workspace root
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        throw new Error('No workspace folder is open');
+      }
+
+      const workspaceRoot = workspaceFolders[0].uri.fsPath;
+      const fullPath = path.join(workspaceRoot, filePath);
+
+      // Ensure directory exists
+      const dirPath = path.dirname(fullPath);
+      if (!fs.existsSync(dirPath)) {
+        await fs.promises.mkdir(dirPath, { recursive: true });
+      }
+
+      // Write file
+      await fs.promises.writeFile(fullPath, content, 'utf-8');
+
+      console.log(`[BuildModeHandler] Saved file: ${filePath}`);
+
+      webview.postMessage({
+        type: 'file-content-saved',
+        path: filePath,
+        success: true,
+      });
+    } catch (error: any) {
+      console.error(`[BuildModeHandler] Failed to save file ${filePath}:`, error);
+      webview.postMessage({
+        type: 'file-content-save-error',
+        path: filePath,
+        error: error.message || 'Failed to save file',
+      });
+    }
+  }
+
+  /**
+   * Handle initialize building stage request.
+   * Creates the building folder and initializes framework if needed.
+   */
+  private async handleInitializeBuilding(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, framework, screens, codeFolderName } = message;
+
+    if (!projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(projectName);
+
+    console.log('[BuildModeHandler] Initializing building stage:', {
+      projectName,
+      framework: framework || 'react',
+      screenCount: screens?.length || 0,
+      codeFolderName: codeFolderName || '(workspace root)',
+    });
+
+    try {
+      // Step 1: Create build folder with page subfolders
+      webview.postMessage({
+        type: 'building-init-progress',
+        step: 'folder',
+        status: 'running',
+        message: 'Creating build folder and page directories...',
+      });
+
+      // Extract page names from screens
+      const pageNames = (screens || []).map((s: any) => s.name || `Page ${screens.indexOf(s) + 1}`);
+      const buildFolderPath = await this.stageManager.createBuildFolder(projectName, pageNames);
+
+      webview.postMessage({
+        type: 'building-init-progress',
+        step: 'folder',
+        status: 'complete',
+        message: `Build folder created with ${pageNames.length} page directories`,
+        path: buildFolderPath,
+      });
+
+      // Step 2: Determine project path (workspace root or subdirectory)
+      const workspacePath = await this.stageManager.getWorkspacePath();
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // If codeFolderName is provided, create that subdirectory
+      let projectPath = workspacePath;
+      if (codeFolderName && codeFolderName.trim()) {
+        projectPath = path.join(workspacePath, codeFolderName.trim());
+
+        // Create the project subdirectory if it doesn't exist
+        if (!fs.existsSync(projectPath)) {
+          await fs.promises.mkdir(projectPath, { recursive: true });
+          webview.postMessage({
+            type: 'building-init-progress',
+            step: 'folder',
+            status: 'complete',
+            message: `Created code folder: ${codeFolderName}/`,
+          });
+        }
+      }
+
+      // Step 3: Check if framework is already initialized in the project path
+      webview.postMessage({
+        type: 'building-init-progress',
+        step: 'framework-check',
+        status: 'running',
+        message: 'Checking framework initialization...',
+      });
+
+      const packageJsonPath = path.join(projectPath, 'package.json');
+      const frameworkInitialized = fs.existsSync(packageJsonPath);
+
+      if (frameworkInitialized) {
+        // Framework already set up
+        webview.postMessage({
+          type: 'building-init-progress',
+          step: 'framework-check',
+          status: 'complete',
+          message: 'Framework already initialized',
+          frameworkReady: true,
+        });
+      } else {
+        // No package.json - initialize framework
+        webview.postMessage({
+          type: 'building-init-progress',
+          step: 'framework-init',
+          status: 'running',
+          message: `Initializing ${framework || 'React'} project with Vite...`,
+        });
+
+        // Get framework init command - run in project subdirectory if specified
+        const initCommand = this.getFrameworkInitCommand(framework || 'react', projectPath);
+
+        if (initCommand) {
+          // Execute framework initialization
+          const { exec } = await import('child_process');
+          const util = await import('util');
+          const execPromise = util.promisify(exec);
+
+          try {
+            webview.postMessage({
+              type: 'building-init-progress',
+              step: 'framework-init',
+              status: 'running',
+              message: `Running: ${initCommand.command}`,
+            });
+
+            await execPromise(initCommand.command, {
+              cwd: initCommand.cwd,
+              timeout: 180000, // 3 minute timeout (some inits are slow)
+            });
+
+            webview.postMessage({
+              type: 'building-init-progress',
+              step: 'framework-init',
+              status: 'complete',
+              message: `${framework || 'React'} project initialized successfully`,
+              frameworkReady: true,
+            });
+            // Dev server will be started just-in-time during screenshot capture
+          } catch (initError: any) {
+            console.error('[BuildModeHandler] Framework init failed:', initError.message?.split('\\n')[0] || initError);
+            webview.postMessage({
+              type: 'building-init-progress',
+              step: 'framework-init',
+              status: 'skipped', // Use skipped instead of error to not block
+              message: `Auto-init skipped. Please set up your ${framework || 'React'} project manually.`,
+              frameworkReady: false,
+            });
+          }
+        } else {
+          webview.postMessage({
+            type: 'building-init-progress',
+            step: 'framework-init',
+            status: 'skipped',
+            message: 'No auto-initialization for this framework. Please set up manually.',
+            frameworkReady: false,
+          });
+        }
+      }
+
+      // Dev server will be started just-in-time during screenshot capture (no long-running process)
+
+      // Step 4: Initialize page tracking
+      const pageStates = (screens || []).map((screen: any, idx: number) => ({
+        id: screen.id || `page-${idx + 1}`,
+        name: screen.name || `Page ${idx + 1}`,
+        status: idx === 0 ? 'pending' : 'locked', // First page is pending, rest are locked
+        currentIteration: 0,
+        maxIterations: 5,
+        history: [],
+      }));
+
+      webview.postMessage({
+        type: 'building-initialized',
+        projectName,
+        buildFolderPath,
+        codeFolderName: codeFolderName || null,
+        pages: pageStates,
+        framework: framework || 'react',
+      });
+
+      console.log('[BuildModeHandler] Building stage initialized successfully');
+
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to initialize building stage:', error);
+      webview.postMessage({
+        type: 'building-init-error',
+        error: error.message || 'Failed to initialize building stage',
+      });
+    }
+  }
+
+  /**
+   * Get the framework initialization command based on selected framework.
+   * Uses modern Vite-based tooling for React/Vue.
+   */
+  private getFrameworkInitCommand(framework: string, workspacePath: string): { command: string; cwd: string } | null {
+    // Use Vite for modern React/Vue projects
+    const commands: Record<string, string | null> = {
+      'react': 'npm create vite@latest . -- --template react-ts',
+      'nextjs': 'npx -y create-next-app@latest . --typescript --eslint --tailwind --app --src-dir --import-alias "@/*" --use-npm',
+      'vue': 'npm create vite@latest . -- --template vue-ts',
+      'flutter': 'flutter create .',
+      'html': null, // No init needed for plain HTML
+    };
+
+    const command = commands[framework.toLowerCase()];
+    if (!command) {
+      return null;
+    }
+
+    return { command, cwd: workspacePath };
   }
 
   // ==================== Persona Generation Handlers (Task 12) ====================
@@ -1137,26 +1778,55 @@ Generate one user story per feature, considering the perspectives of all persona
 
       // Parse the generated stories
       let stories: any[] = [];
-      try {
-        // Try to extract JSON from the response
-        const jsonMatch = generatedContent.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          stories = JSON.parse(jsonMatch[0]);
-        } else {
-          // Try parsing directly
-          stories = JSON.parse(generatedContent);
+      console.log('[BuildModeHandler] Parsing stories, content length:', generatedContent?.length);
+      const parseResult = parseJson(generatedContent);
+      console.log('[BuildModeHandler] Parse result:', {
+        success: parseResult.success,
+        error: parseResult.error,
+        dataType: typeof parseResult.data,
+        isArray: Array.isArray(parseResult.data),
+        hasStories: parseResult.data?.stories ? 'yes' : 'no',
+        storiesCount: parseResult.data?.stories?.length ?? (Array.isArray(parseResult.data) ? parseResult.data.length : 0)
+      });
+      if (parseResult.success && parseResult.data) {
+        // Handle both array and object with stories property
+        if (Array.isArray(parseResult.data)) {
+          stories = parseResult.data;
+        } else if (parseResult.data.stories && Array.isArray(parseResult.data.stories)) {
+          stories = parseResult.data.stories;
         }
-      } catch {
-        // If parsing fails, create a simple story from the text
-        stories = [
-          {
-            id: `story-${Date.now()}`,
-            title: 'Generated Story',
-            description: generatedContent,
-            acceptanceCriteria: [],
-            clarifyingQuestions: [],
-          },
-        ];
+        console.log('[BuildModeHandler] Parsed stories count:', stories.length);
+        if (parseResult.wasRepaired) {
+          console.log(`[BuildModeHandler] JSON was repaired for stories generation`);
+        }
+      } else {
+        // Try LLM repair (one attempt)
+        console.warn(`[BuildModeHandler] Initial stories parse failed: ${parseResult.error}`);
+        const repairedStories = await this.attemptLlmJsonRepair(
+          generatedContent,
+          parseResult.error || 'Unknown parse error',
+          message.projectName
+        );
+        if (repairedStories) {
+          if (Array.isArray(repairedStories)) {
+            stories = repairedStories;
+          } else if (repairedStories.stories && Array.isArray(repairedStories.stories)) {
+            stories = repairedStories.stories;
+          }
+          console.log(`[BuildModeHandler] LLM repair succeeded for stories`);
+        } else {
+          // Fallback: create a simple story from the text
+          console.warn(`[BuildModeHandler] LLM repair failed, creating fallback story`);
+          stories = [
+            {
+              id: `story-${Date.now()}`,
+              title: 'Generated Story',
+              description: generatedContent,
+              acceptanceCriteria: [],
+              clarifyingQuestions: [],
+            },
+          ];
+        }
       }
 
       // Ensure each story has required fields
@@ -1251,19 +1921,15 @@ Generate a single improved user story with acceptance criteria and clarifying qu
 
       // Parse the regenerated story
       let updatedStory: any;
-      try {
-        const jsonMatch = generatedContent.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          updatedStory = Array.isArray(parsed) ? parsed[0] : parsed;
-        } else {
-          updatedStory = {
-            description: generatedContent,
-            acceptanceCriteria: [],
-            clarifyingQuestions: [],
-          };
+      const storyParseResult = parseJson(generatedContent);
+      if (storyParseResult.success && storyParseResult.data) {
+        const parsed = storyParseResult.data;
+        updatedStory = Array.isArray(parsed) ? parsed[0] : parsed;
+        if (storyParseResult.wasRepaired) {
+          console.log('[BuildModeHandler] JSON was repaired for story regeneration');
         }
-      } catch {
+      } else {
+        console.warn(`[BuildModeHandler] Could not parse story JSON: ${storyParseResult.error}`);
         updatedStory = {
           description: generatedContent,
           acceptanceCriteria: [],
@@ -1373,31 +2039,51 @@ Generate user flows and page specifications optimized for ${framework}.`;
       );
 
       let design: any = { userFlows: [], pages: [] };
-      try {
-        const jsonMatch = generatedContent.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          design = JSON.parse(jsonMatch[0]);
+      const designParseResult = parseJson(generatedContent);
+      if (designParseResult.success && designParseResult.data) {
+        design = designParseResult.data;
+        if (designParseResult.wasRepaired) {
+          console.log(`[BuildModeHandler] JSON was repaired for design generation`);
         }
-      } catch {
-        design = { userFlows: [], pages: [] };
+      } else {
+        // Try LLM repair (one attempt)
+        console.warn(`[BuildModeHandler] Initial design parse failed: ${designParseResult.error}`);
+        const repairedDesign = await this.attemptLlmJsonRepair(
+          generatedContent,
+          designParseResult.error || 'Unknown parse error',
+          message.projectName
+        );
+        if (repairedDesign) {
+          design = repairedDesign;
+          console.log(`[BuildModeHandler] LLM repair succeeded for design`);
+        } else {
+          console.warn(`[BuildModeHandler] LLM repair failed for design, using empty structure`);
+          design = { userFlows: [], pages: [] };
+        }
       }
 
-      // Normalize flows
-      design.userFlows = (design.userFlows || []).map((flow: any, i: number) => ({
+      // Normalize flows - handle both 'userFlows' and 'flows' key names from AI responses
+      const rawFlows = design.userFlows || design.flows || [];
+      design.userFlows = rawFlows.map((flow: any, i: number) => ({
         id: flow.id || `flow-${i + 1}-${Date.now()}`,
         name: flow.name || `User Flow ${i + 1}`,
         description: flow.description || '',
         steps: Array.isArray(flow.steps) ? flow.steps : [],
       }));
+      // Remove the 'flows' key if it existed to ensure consistent storage
+      delete design.flows;
 
-      // Normalize pages
-      design.pages = (design.pages || []).map((page: any, i: number) => ({
+      // Normalize pages - handle 'pages' or 'screens' key names from AI responses
+      const rawPages = design.pages || design.screens || [];
+      design.pages = rawPages.map((page: any, i: number) => ({
         id: page.id || `page-${i + 1}-${Date.now()}`,
         name: page.name || `Page ${i + 1}`,
-        purpose: page.purpose || '',
-        uiElements: Array.isArray(page.uiElements) ? page.uiElements : [],
-        userActions: Array.isArray(page.userActions) ? page.userActions : [],
+        purpose: page.purpose || page.description || '',
+        uiElements: Array.isArray(page.uiElements) ? page.uiElements : (Array.isArray(page.elements) ? page.elements : []),
+        userActions: Array.isArray(page.userActions) ? page.userActions : (Array.isArray(page.actions) ? page.actions : []),
       }));
+      // Remove the 'screens' key if it existed to ensure consistent storage
+      delete design.screens;
 
       // Save to stage file
       await this.buildModeService.saveStage(
@@ -1469,14 +2155,28 @@ Generate 3-5 clear user flows showing how users navigate through the application
       );
 
       let flows: any[] = [];
-      try {
-        const jsonMatch = generatedContent.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          flows = parsed.userFlows || [];
+      const parseResult = parseJson(generatedContent);
+      if (parseResult.success && parseResult.data) {
+        // Handle both 'userFlows' and 'flows' key names from AI responses
+        flows = parseResult.data.userFlows || parseResult.data.flows || [];
+        if (parseResult.wasRepaired) {
+          console.log(`[BuildModeHandler] JSON was repaired for flows regeneration`);
         }
-      } catch {
-        flows = [];
+      } else {
+        // Try LLM repair (one attempt)
+        console.warn(`[BuildModeHandler] Initial flows parse failed: ${parseResult.error}`);
+        const repairedFlows = await this.attemptLlmJsonRepair(
+          generatedContent,
+          parseResult.error || 'Unknown parse error',
+          message.projectName
+        );
+        if (repairedFlows) {
+          flows = repairedFlows.userFlows || repairedFlows.flows || [];
+          console.log(`[BuildModeHandler] LLM repair succeeded for flows`);
+        } else {
+          console.warn(`[BuildModeHandler] LLM repair failed for flows, using empty array`);
+          flows = [];
+        }
       }
 
       flows = flows.map((flow: any, i: number) => ({
@@ -1486,13 +2186,25 @@ Generate 3-5 clear user flows showing how users navigate through the application
         steps: Array.isArray(flow.steps) ? flow.steps : [],
       }));
 
+      // Save flows to file - merge with existing design data
+      const existingDesign = (await this.buildModeService.loadStage(message.projectName, 'design') || {}) as any;
+      await this.buildModeService.saveStage(
+        message.projectName,
+        'design',
+        {
+          ...existingDesign,
+          userFlows: flows,
+        },
+        existingDesign.completed || false
+      );
+
       webview.postMessage({
         type: 'flows-updated',
         projectName: message.projectName,
         userFlows: flows,
       });
 
-      console.log('[BuildModeHandler] Flows regenerated:', {
+      console.log('[BuildModeHandler] Flows regenerated and saved:', {
         projectName: message.projectName,
         flowCount: flows.length,
       });
@@ -1526,6 +2238,7 @@ Generate 3-5 clear user flows showing how users navigate through the application
     });
 
     try {
+      console.log(`[BuildModeHandler] Starting interview workflow with ${personas.length} personas`);
       const result = await this.buildModeService.generateFeaturesFromInterviews(
         projectName,
         idea,
@@ -1533,10 +2246,29 @@ Generate 3-5 clear user flows showing how users navigate through the application
         (progressParams: string) => {
           try {
             const p = JSON.parse(progressParams);
+
+            // Send to BUILD OUTPUT panel
+            webview.postMessage({
+              type: 'build-log',
+              projectName,
+              entry: {
+                timestamp: Date.now(),
+                type: 'info',
+                message: p.step,
+              },
+            });
+
             webview.postMessage({
               type: 'survey-progress-update',
-              step: p.step
+              step: p.step,
+              response: p.response, // Forward individual interview response if present
             });
+
+            // If there's an individual response, also log it
+            if (p.response) {
+              console.log(`[BuildModeHandler] Interview response from ${p.response.personaName}:`,
+                p.response.error ? `Error: ${p.response.error}` : 'Success');
+            }
           } catch {
             // ignore format errors
           }
@@ -1549,14 +2281,479 @@ Generate 3-5 clear user flows showing how users navigate through the application
       webview.postMessage({
         type: 'features-generated',
         data: result.features, // send features array
-        surveyComplete: true
+        surveyComplete: true,
       });
 
     } catch (error: any) {
       console.error('Feature generation failed', error);
       webview.postMessage({
         type: 'generation-error',
-        error: error.message
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Handle start research workflow request (Task 18)
+   * Validates: Requirements 11.1, 11.2
+   */
+  private async handleStartResearchWorkflow(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, ideaDescription } = message;
+
+    if (!projectName || !ideaDescription) {
+      throw new Error('Project name and idea description are required');
+    }
+
+    this.validateProjectName(projectName);
+
+    console.log('[BuildModeHandler] Starting research workflow:', {
+      projectName,
+      ideaDescriptionLength: ideaDescription.length,
+    });
+
+    // Notify start
+    webview.postMessage({
+      type: 'research-workflow-started',
+      projectName,
+    });
+
+    try {
+      const result = await this.buildModeService.executeResearchWorkflow(
+        projectName,
+        ideaDescription,
+        (progressUpdate) => {
+          webview.postMessage({
+            type: 'research-progress-update',
+            ...progressUpdate,
+          });
+        }
+      );
+
+      if (result.success) {
+        webview.postMessage({
+          type: 'research-workflow-complete',
+          projectName,
+          report: result.synthesizedReport,
+          competitiveAnalysis: result.competitiveAnalysis,
+          marketResearch: result.marketResearch,
+          userResearch: result.userResearch,
+        });
+      } else {
+        webview.postMessage({
+          type: 'research-workflow-error',
+          projectName,
+          error: result.error || 'Research workflow failed',
+        });
+      }
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Research workflow failed:', error);
+      webview.postMessage({
+        type: 'research-workflow-error',
+        projectName,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle regenerate single feature request (Task 14.4)
+   * Validates: Requirements 10.6
+   */
+  private async handleRegenerateSingleFeature(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, featureId, surveyData, originalFeature } = message;
+
+    if (!projectName || !featureId) {
+      throw new Error('Project name and feature ID are required');
+    }
+
+    this.validateProjectName(projectName);
+
+    console.log('[BuildModeHandler] Regenerating feature:', {
+      projectName,
+      featureId,
+    });
+
+    try {
+      // Use the consolidator agent to regenerate this specific feature
+      const conversationId = `regenerate-feature-${projectName}-${featureId}-${Date.now()}`;
+      const agent = await this.buildModeService['agentManager'].getOrCreateAgent(conversationId, 'build');
+
+      const systemPrompt = `You are a CPTO (Chief Product & Technology Officer). 
+Your task is to regenerate a single feature description based on user survey data.
+Focus on improving clarity, priority assessment, and actionable description.`;
+
+      const prompt = `Regenerate this feature with improved clarity and detail:
+
+ORIGINAL FEATURE:
+- Name: ${originalFeature?.name || 'Unknown'}
+- Description: ${originalFeature?.description || 'No description'}
+- Score: ${originalFeature?.score || 'N/A'}
+- Priority: ${originalFeature?.priority || 'N/A'}
+
+${surveyData ? `SURVEY DATA:\n${JSON.stringify(surveyData, null, 2)}` : ''}
+
+Generate an improved feature with:
+- Clear, concise name
+- Detailed description explaining the value
+- Updated priority (High/Medium/Low)
+- Score (1-10)
+- Frequency of request
+
+Output as JSON:
+{
+  "id": "${featureId}",
+  "name": "Feature Name",
+  "description": "Detailed description",
+  "score": 8,
+  "frequency": "High",
+  "priority": "High",
+  "reasoning": "Why this priority"
+}`;
+
+      await agent.chat(prompt, [], {}, systemPrompt, false);
+
+      // Get the response
+      const conversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(conversationId);
+      const lastMsg = conversation?.messages.filter((m: any) => m.role === 'model').pop();
+
+      let updatedFeature = originalFeature;
+      if (lastMsg?.text) {
+        const featureParseResult = parseJson(lastMsg.text);
+        if (featureParseResult.success && featureParseResult.data) {
+          updatedFeature = featureParseResult.data;
+          updatedFeature.id = featureId; // Preserve original ID
+          if (featureParseResult.wasRepaired) {
+            console.log('[BuildModeHandler] JSON was repaired for feature regeneration');
+          }
+        } else {
+          // Try LLM repair (one attempt)
+          console.warn('[BuildModeHandler] Initial feature parse failed:', featureParseResult.error);
+          const repairedFeature = await this.attemptLlmJsonRepair(
+            lastMsg.text,
+            featureParseResult.error || 'Unknown parse error',
+            projectName
+          );
+          if (repairedFeature) {
+            updatedFeature = repairedFeature;
+            updatedFeature.id = featureId; // Preserve original ID
+            console.log('[BuildModeHandler] LLM repair succeeded for feature regeneration');
+          } else {
+            console.warn('[BuildModeHandler] LLM repair failed, keeping original feature');
+          }
+        }
+      }
+
+      await this.buildModeService['agentManager'].disposeAgent(conversationId);
+
+      webview.postMessage({
+        type: 'feature-updated',
+        projectName,
+        featureId,
+        feature: updatedFeature,
+      });
+
+      console.log('[BuildModeHandler] Feature regenerated:', {
+        projectName,
+        featureId,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Feature regeneration failed:', error);
+      webview.postMessage({
+        type: 'feature-regeneration-error',
+        projectName,
+        featureId,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle start building workflow request (Task 21)
+   * Validates: Requirements 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
+   */
+  private async handleStartBuildingWorkflow(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, userStory, iterationNumber, framework, personas, previousFeedback } = message;
+
+    if (!projectName || !userStory) {
+      throw new Error('Project name and user story are required');
+    }
+
+    this.validateProjectName(projectName);
+
+    const iteration = iterationNumber || 1;
+
+    console.log('[BuildModeHandler] Starting building workflow:', {
+      projectName,
+      iteration,
+      framework: framework || 'React',
+    });
+
+    // Notify start
+    webview.postMessage({
+      type: 'building-workflow-started',
+      projectName,
+      iterationNumber: iteration,
+    });
+
+    try {
+      const totalSteps = 3 + (personas?.length || 0); // UX + Dev + Feedback per persona
+      let currentStep = 0;
+
+      // Step 1: UX Agent - Generate design requirements
+      currentStep++;
+      webview.postMessage({
+        type: 'building-progress-update',
+        step: currentStep,
+        totalSteps,
+        agentId: 'ux-agent',
+        status: 'running',
+        message: 'UX Designer is creating design requirements...',
+      });
+
+      const uxConversationId = `building-ux-${projectName}-${iteration}-${Date.now()}`;
+      let designRequirements = '';
+
+      try {
+        const uxAgent = await this.buildModeService['agentManager'].getOrCreateAgent(uxConversationId, 'build');
+
+        const uxSystemPrompt = `You are a senior UX Designer. Your task is to create design requirements for a feature implementation.
+${previousFeedback ? `\nPrevious iteration feedback to address:\n${previousFeedback}` : ''}
+
+Focus on:
+1. UI components and layout
+2. User interactions and flows
+3. Accessibility requirements
+4. Visual design guidelines
+5. Error states and edge cases`;
+
+        const uxPrompt = `Create design requirements for this user story:
+
+${userStory.title || userStory}
+${userStory.description ? `\nDescription: ${userStory.description}` : ''}
+${userStory.acceptanceCriteria ? `\nAcceptance Criteria:\n${userStory.acceptanceCriteria.map((c: string) => `- ${c}`).join('\n')}` : ''}
+
+Framework: ${framework || 'React'}
+
+Provide detailed design requirements including:
+1. Component structure
+2. Layout specifications
+3. User interaction details
+4. Responsive behavior
+5. Accessibility considerations`;
+
+        await uxAgent.chat(uxPrompt, [], {}, uxSystemPrompt, false);
+
+        const uxConversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(uxConversationId);
+        const uxLastMsg = uxConversation?.messages.filter((m: any) => m.role === 'model').pop();
+        designRequirements = uxLastMsg?.text || '';
+
+        await this.buildModeService['agentManager'].disposeAgent(uxConversationId);
+
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps,
+          agentId: 'ux-agent',
+          status: 'complete',
+          message: 'Design requirements created',
+          output: designRequirements,
+        });
+      } catch (error: any) {
+        await this.buildModeService['agentManager'].disposeAgent(uxConversationId);
+        throw new Error(`UX design failed: ${error.message}`);
+      }
+
+      // Step 2: Developer Agent - Implement the feature
+      currentStep++;
+      webview.postMessage({
+        type: 'building-progress-update',
+        step: currentStep,
+        totalSteps,
+        agentId: 'developer-agent',
+        status: 'running',
+        message: 'Developer is implementing the feature...',
+      });
+
+      const devConversationId = `building-dev-${projectName}-${iteration}-${Date.now()}`;
+      let implementationSummary = '';
+
+      try {
+        const devAgent = await this.buildModeService['agentManager'].getOrCreateAgent(devConversationId, 'build');
+
+        const devSystemPrompt = `You are a senior full-stack developer using ${framework || 'React'}.
+Your task is to implement a feature based on design requirements.
+
+Provide:
+1. File structure and component organization
+2. Key code snippets (in code blocks)
+3. Implementation notes
+4. Testing considerations`;
+
+        const devPrompt = `Implement the following feature based on these design requirements:
+
+USER STORY:
+${userStory.title || userStory}
+
+DESIGN REQUIREMENTS:
+${designRequirements}
+
+Provide a detailed implementation plan with code examples.`;
+
+        await devAgent.chat(devPrompt, [], {}, devSystemPrompt, false);
+
+        const devConversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(devConversationId);
+        const devLastMsg = devConversation?.messages.filter((m: any) => m.role === 'model').pop();
+        implementationSummary = devLastMsg?.text || '';
+
+        await this.buildModeService['agentManager'].disposeAgent(devConversationId);
+
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps,
+          agentId: 'developer-agent',
+          status: 'complete',
+          message: 'Implementation complete',
+          output: implementationSummary,
+        });
+      } catch (error: any) {
+        await this.buildModeService['agentManager'].disposeAgent(devConversationId);
+        throw new Error(`Development failed: ${error.message}`);
+      }
+
+      // Step 3: User Feedback Agents - Get feedback from personas
+      const feedbackResults: any[] = [];
+
+      if (personas && personas.length > 0) {
+        const feedbackPromises = personas.map(async (persona: any) => {
+          currentStep++;
+          webview.postMessage({
+            type: 'building-progress-update',
+            step: currentStep,
+            totalSteps,
+            agentId: `feedback-${persona.id}`,
+            status: 'running',
+            message: `${persona.name} is reviewing the implementation...`,
+          });
+
+          const feedbackConversationId = `building-feedback-${projectName}-${persona.id}-${iteration}-${Date.now()}`;
+
+          try {
+            const feedbackAgent = await this.buildModeService['agentManager'].getOrCreateAgent(feedbackConversationId, 'build');
+
+            const feedbackSystemPrompt = `You are ${persona.name}. ${persona.backstory || ''}
+You are reviewing a new feature implementation as a potential user.
+
+Provide honest feedback from your perspective:
+1. Overall rating (1-10)
+2. What works well
+3. What needs improvement
+4. Specific suggestions
+5. Would you use this? Why or why not?`;
+
+            const feedbackPrompt = `Review this implementation:
+
+USER STORY: ${userStory.title || userStory}
+
+DESIGN REQUIREMENTS:
+${designRequirements.substring(0, 1000)}...
+
+IMPLEMENTATION:
+${implementationSummary.substring(0, 1000)}...
+
+Provide your feedback as JSON:
+{
+  "rating": 8,
+  "positives": ["What works well"],
+  "improvements": ["What needs work"],
+  "suggestions": ["Specific suggestions"],
+  "wouldUse": true,
+  "reason": "Why or why not"
+}`;
+
+            await feedbackAgent.chat(feedbackPrompt, [], {}, feedbackSystemPrompt, false);
+
+            const feedbackConversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(feedbackConversationId);
+            const feedbackLastMsg = feedbackConversation?.messages.filter((m: any) => m.role === 'model').pop();
+
+            let feedback: any = { personaId: persona.id, personaName: persona.name, rating: 7 };
+            if (feedbackLastMsg?.text) {
+              try {
+                const jsonMatch = feedbackLastMsg.text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
+                  feedbackLastMsg.text.match(/\{[\s\S]*\}/);
+                const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : feedbackLastMsg.text;
+                feedback = { ...feedback, ...JSON.parse(jsonStr) };
+              } catch (e) {
+                feedback = { ...feedback, raw: feedbackLastMsg.text };
+              }
+            }
+
+            await this.buildModeService['agentManager'].disposeAgent(feedbackConversationId);
+
+            webview.postMessage({
+              type: 'building-progress-update',
+              step: currentStep,
+              totalSteps,
+              agentId: `feedback-${persona.id}`,
+              status: 'complete',
+              message: `${persona.name} completed review (Rating: ${feedback.rating}/10)`,
+            });
+
+            return feedback;
+          } catch (error: any) {
+            await this.buildModeService['agentManager'].disposeAgent(feedbackConversationId);
+            return {
+              personaId: persona.id,
+              personaName: persona.name,
+              error: error.message,
+              rating: 0,
+            };
+          }
+        });
+
+        feedbackResults.push(...await Promise.all(feedbackPromises));
+      }
+
+      // Calculate aggregated feedback
+      const validFeedback = feedbackResults.filter((f) => f.rating > 0);
+      const averageRating = validFeedback.length > 0
+        ? validFeedback.reduce((sum, f) => sum + f.rating, 0) / validFeedback.length
+        : 0;
+
+      const aggregatedFeedback = {
+        averageRating: Math.round(averageRating * 10) / 10,
+        totalResponses: feedbackResults.length,
+        positives: feedbackResults.flatMap((f) => f.positives || []).slice(0, 5),
+        improvements: feedbackResults.flatMap((f) => f.improvements || []).slice(0, 5),
+        suggestions: feedbackResults.flatMap((f) => f.suggestions || []).slice(0, 5),
+      };
+
+      // Save iteration data
+      await this.stageManager.saveIterationFeedback(projectName, iteration, feedbackResults);
+
+      // Send completion
+      webview.postMessage({
+        type: 'building-workflow-complete',
+        projectName,
+        iterationNumber: iteration,
+        designRequirements,
+        implementationSummary,
+        feedback: feedbackResults,
+        aggregatedFeedback,
+      });
+
+      console.log('[BuildModeHandler] Building workflow completed:', {
+        projectName,
+        iteration,
+        averageRating: aggregatedFeedback.averageRating,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Building workflow failed:', error);
+      webview.postMessage({
+        type: 'building-workflow-error',
+        projectName,
+        iterationNumber: iteration,
+        error: this.errorSanitizer.sanitize(error).userMessage,
       });
     }
   }
@@ -1579,5 +2776,253 @@ Generate 3-5 clear user flows showing how users navigate through the application
       message: sanitizedError.userMessage,
       context: 'build-mode',
     });
+  }
+
+  /**
+   * Handle pause building workflow request (Task 21.11)
+   */
+  private async handlePauseBuildingWorkflow(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    const { projectName, iterationNumber } = message;
+    if (!projectName) {
+      throw new Error('Project name is required to pause workflow');
+    }
+
+    console.log(`[BuildModeHandler] Pausing building workflow for: ${projectName}`);
+
+    const pausedAt = Date.now();
+
+    // Save paused state as consolidated feedback (as a marker)
+    await this.stageManager.saveConsolidatedFeedback(
+      projectName,
+      iterationNumber || 1,
+      `# Workflow Paused\n\nPaused at: ${new Date(pausedAt).toISOString()}\n\nThis workflow was paused by the user and can be resumed.`
+    );
+
+    webview.postMessage({
+      type: 'building-workflow-paused',
+      projectName,
+      pausedAt,
+    });
+
+    console.log(`[BuildModeHandler] Building workflow paused for: ${projectName}`);
+  }
+
+  /**
+   * Handle resume building workflow request (Task 21.11)
+   */
+  private async handleResumeBuildingWorkflow(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    const { projectName, iterationNumber, userStory, framework: _framework, personas: _personas } = message;
+    if (!projectName) {
+      throw new Error('Project name is required to resume workflow');
+    }
+
+    console.log(`[BuildModeHandler] Resuming building workflow for: ${projectName}`);
+
+    // Load the saved workflow state
+    const iterationData = await this.stageManager.loadIterationData(
+      projectName,
+      iterationNumber || 1
+    );
+
+    // Check if we have paused state (consolidatedFeedback contains "Workflow Paused")
+    const isPaused = iterationData?.consolidatedFeedback?.includes('# Workflow Paused');
+
+    if (!isPaused) {
+      webview.postMessage({
+        type: 'building-workflow-error',
+        error: 'No paused workflow found to resume',
+        projectName,
+      });
+      return;
+    }
+
+    webview.postMessage({
+      type: 'building-workflow-resumed',
+      projectName,
+      iterationNumber: iterationNumber || 1,
+    });
+
+    // Restart the workflow if we have the user story
+    if (userStory) {
+      await this.handleStartBuildingWorkflow(
+        { ...message, type: 'start-building-workflow' },
+        webview
+      );
+    }
+
+    console.log(`[BuildModeHandler] Building workflow resumed for: ${projectName}`);
+  }
+
+  /**
+   * Handle save survey response request
+   * Saves individual interview responses to the project's survey directory
+   */
+  private async handleSaveSurveyResponse(
+    message: WebviewMessage,
+    _webview: any
+  ): Promise<void> {
+    const { projectName, response } = message;
+    if (!projectName || !response) {
+      console.warn('[BuildModeHandler] Missing project name or response for save-survey-response');
+      return;
+    }
+
+    try {
+      this.validateProjectName(projectName);
+
+      // Save to survey directory as individual file
+      const surveyData = {
+        surveys: [response],
+      };
+
+      // Append to existing survey data
+      const existingData = await this.stageManager.readStageFile(projectName, 'surveys') as any || { surveys: [] };
+      if (Array.isArray(existingData.surveys)) {
+        existingData.surveys.push(response);
+        await this.stageManager.writeStageFile(projectName, 'surveys', existingData, true);
+      } else {
+        await this.stageManager.writeStageFile(projectName, 'surveys', surveyData, true);
+      }
+
+      console.log(
+        `[BuildModeHandler] Saved survey response from ${response.personaName || 'unknown'} for project ${projectName}`
+      );
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to save survey response:', error);
+      // Don't throw - this is a non-critical operation
+    }
+  }
+
+  /**
+   * Handle cancel operation request
+   * Aborts multi-agent operations and disposes running agents
+   */
+  private async handleCancelOperation(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    const { projectName, operationType } = message;
+
+    console.log(`[BuildModeHandler] Cancelling operation: ${operationType} for project: ${projectName}`);
+
+    // Notify webview that operation is cancelled
+    webview.postMessage({
+      type: 'operation-cancelled',
+      projectName,
+      operationType,
+    });
+
+    webview.postMessage({
+      type: 'build-log',
+      projectName,
+      entry: {
+        timestamp: Date.now(),
+        type: 'warning',
+        message: `${operationType} cancelled by user`,
+      },
+    });
+
+    console.log(`[BuildModeHandler] Operation ${operationType} cancelled`);
+  }
+
+  /**
+   * Handle saving page iteration data.
+   */
+  private async handleSavePageIteration(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, pageName, iterationNumber, data } = message;
+
+    if (!projectName || !pageName || iterationNumber === undefined) {
+      throw new Error('Project name, page name, and iteration number are required');
+    }
+
+    this.validateProjectName(projectName);
+
+    console.log('[BuildModeHandler] Saving page iteration:', {
+      projectName,
+      pageName,
+      iterationNumber,
+    });
+
+    try {
+      const iterDir = await this.stageManager.savePageIterationData(
+        projectName,
+        pageName,
+        iterationNumber,
+        data || {}
+      );
+
+      webview.postMessage({
+        type: 'page-iteration-saved',
+        projectName,
+        pageName,
+        iterationNumber,
+        path: iterDir,
+      });
+
+      console.log('[BuildModeHandler] Page iteration saved:', {
+        projectName,
+        pageName,
+        iterationNumber,
+        path: iterDir,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to save page iteration:', error);
+      webview.postMessage({
+        type: 'page-iteration-error',
+        projectName,
+        pageName,
+        iterationNumber,
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Handle loading all iterations for a page.
+   */
+  private async handleLoadPageIterations(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, pageName } = message;
+
+    if (!projectName || !pageName) {
+      throw new Error('Project name and page name are required');
+    }
+
+    this.validateProjectName(projectName);
+
+    console.log('[BuildModeHandler] Loading page iterations:', {
+      projectName,
+      pageName,
+    });
+
+    try {
+      const iterations = await this.stageManager.loadPageIterations(projectName, pageName);
+
+      webview.postMessage({
+        type: 'page-iterations-loaded',
+        projectName,
+        pageName,
+        iterations,
+      });
+
+      console.log('[BuildModeHandler] Page iterations loaded:', {
+        projectName,
+        pageName,
+        count: iterations.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to load page iterations:', error);
+      webview.postMessage({
+        type: 'page-iterations-error',
+        projectName,
+        pageName,
+        error: error.message,
+      });
+    }
   }
 }

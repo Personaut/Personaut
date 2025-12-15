@@ -25,6 +25,18 @@ export {
   ErrorClassification,
 } from './ErrorSanitizer';
 export { TokenStorageService, MigrationResult, ApiKeys } from './TokenStorageService';
+export { TokenMonitor } from './TokenMonitor';
+export {
+  TokenUsage,
+  TokenCheckResult,
+  StoredTokenUsage,
+  TokenUsageMessage,
+  TokenLimitErrorMessage,
+  TokenResetMessage,
+  UsageData,
+  DEFAULT_TOKEN_LIMIT,
+  DEFAULT_WARNING_THRESHOLD,
+} from '../types/TokenMonitorTypes';
 export {
   AccessibilityValidator,
   AriaValidationResult,

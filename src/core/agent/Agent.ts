@@ -11,6 +11,7 @@ import { TerminalManager } from '../integrations/TerminalManager';
 import { getAgentSystemPrompt } from '../prompts/SystemPrompts';
 import { AgentMode, ContextFile, AgentSettings, AgentConfig } from './AgentTypes';
 import { InputValidator } from '../../shared/services/InputValidator';
+import { TokenMonitor } from '../../shared/services/TokenMonitor';
 
 /**
  * Agent class handles AI conversations and tool execution
@@ -34,6 +35,7 @@ export class Agent {
     config: AgentConfig,
     // Will be typed properly when shared services are implemented
     private readonly tokenStorageService?: any,
+    private readonly tokenMonitor?: TokenMonitor,
   ) {
     this.conversationId = config.conversationId;
     this.onDidUpdateMessages = config.onDidUpdateMessages;
@@ -149,6 +151,13 @@ export class Agent {
     systemInstruction?: string,
     isPersonaChat: boolean = false
   ) {
+    console.log('[Agent] chat called with settings:', {
+      autoRead: settings.autoRead,
+      autoWrite: settings.autoWrite,
+      autoExecute: settings.autoExecute,
+      conversationId: this.conversationId,
+    });
+
     if (systemInstruction) {
       this.customSystemPrompt = systemInstruction;
     }
@@ -240,8 +249,61 @@ export class Agent {
       if (!this.provider) {
         throw new Error('Provider not initialized');
       }
+
+      // Check token limits before making provider call
+      if (this.tokenMonitor) {
+        // Estimate tokens for the last user message
+        const lastUserMessage = this.messageHistory[this.messageHistory.length - 1];
+        const estimatedTokens = lastUserMessage
+          ? this.tokenMonitor.estimateTokens(lastUserMessage.text)
+          : 100; // Default estimate
+
+        const checkResult = await this.tokenMonitor.checkLimit(this.conversationId, estimatedTokens);
+
+        if (!checkResult.allowed) {
+          this.webview.postMessage({
+            mode: this.mode,
+            type: 'add-message',
+            role: 'error',
+            text: `Token limit exceeded:\n\n${checkResult.reason}`,
+          });
+          this.webview.postMessage({
+            type: 'token-limit-error',
+            message: checkResult.reason || 'Token limit exceeded',
+            currentUsage: checkResult.currentUsage,
+            limit: checkResult.limit,
+          });
+          // Remove the user message that was just added
+          this.messageHistory.pop();
+          this.onDidUpdateMessages(this.messageHistory);
+          return;
+        }
+      }
+
       const response = await this.provider.chat(this.messageHistory, dynamicSystemPrompt);
       responseText = response.text;
+
+      // Record token usage after successful provider call
+      if (this.tokenMonitor) {
+        if (response.usage) {
+          await this.tokenMonitor.recordUsage(this.conversationId, {
+            inputTokens: response.usage.inputTokens,
+            outputTokens: response.usage.outputTokens,
+            totalTokens: response.usage.totalTokens,
+          });
+        } else {
+          // Estimate usage if provider doesn't return it
+          const estimatedInput = this.tokenMonitor.estimateTokens(
+            this.messageHistory.map(m => m.text).join('\n')
+          );
+          const estimatedOutput = this.tokenMonitor.estimateTokens(responseText);
+          await this.tokenMonitor.recordUsage(this.conversationId, {
+            inputTokens: estimatedInput,
+            outputTokens: estimatedOutput,
+            totalTokens: estimatedInput + estimatedOutput,
+          });
+        }
+      }
 
       if (response.usage) {
         this.webview.postMessage({
@@ -278,6 +340,8 @@ export class Agent {
     const toolCall = await this.parseToolCall(responseText);
 
     if (toolCall) {
+      console.log(`[Agent] Tool call detected: ${toolCall.tool}, path: ${toolCall.args?.path || 'N/A'}`);
+
       if (this.abortController?.signal.aborted) {
         return;
       }
@@ -286,6 +350,7 @@ export class Agent {
 
       // Check permissions
       const allowed = this.checkToolPermission(toolCall.tool, settings);
+      console.log(`[Agent] Tool ${toolCall.tool} permission check: ${allowed ? 'ALLOWED' : 'DENIED'} (autoWrite=${settings.autoWrite})`);
 
       if (!allowed) {
         const denialMsg = `User denied permission to execute ${toolCall.tool}. Ask the user to enable it in settings if needed.`;
@@ -306,11 +371,15 @@ export class Agent {
       let toolResult = '';
       if (toolInstance) {
         try {
+          console.log(`[Agent] Executing tool ${toolCall.tool}...`);
           toolResult = await toolInstance.execute(toolCall.args, toolCall.content);
+          console.log(`[Agent] Tool ${toolCall.tool} result: ${toolResult.substring(0, 100)}...`);
         } catch (e: any) {
+          console.error(`[Agent] Tool ${toolCall.tool} error:`, e.message);
           toolResult = `Error executing tool: ${e.message}`;
         }
       } else {
+        console.warn(`[Agent] Unknown tool: ${toolCall.tool}`);
         toolResult = 'Unknown tool.';
       }
 
