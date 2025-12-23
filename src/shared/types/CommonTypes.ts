@@ -13,6 +13,12 @@ export interface Message {
   text: string;
   images?: string[]; // Base64 encoded images
   metadata?: MessageMetadata; // Optional metadata for agent-to-agent communication
+  /** Persona ID that sent this message */
+  personaId?: string;
+  /** Persona name for display */
+  personaName?: string;
+  /** Persona icon (emoji or letter) */
+  personaIcon?: string;
 }
 
 /**

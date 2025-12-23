@@ -27,16 +27,50 @@ export class TokenMonitor {
     private warningEmitter: (
         (conversationId: string, usage: TokenUsage, limit: number) => void
     ) | null = null;
+    private initPromise: Promise<void> | null = null;
+    private initialized = false;
+
+    // SettingsService is optional to break circular dependency during initialization
+    private settingsService: SettingsService | null = null;
 
     constructor(
         private readonly storageService: TokenStorageService,
-        private readonly settingsService: SettingsService
-    ) { }
+        settingsService?: SettingsService | null
+    ) {
+        this.settingsService = settingsService || null;
+    }
+
+    /**
+     * Set the settings service after construction (lazy injection).
+     * This allows breaking circular dependencies during initialization.
+     * 
+     * @param settingsService - The SettingsService instance to inject
+     */
+    setSettingsService(settingsService: SettingsService): void {
+        this.settingsService = settingsService;
+        console.log('[TokenMonitor] SettingsService injected (lazy dependency)');
+    }
 
     /**
      * Initialize the token monitor by loading existing usage from storage.
+     * Safe to call multiple times - will only initialize once.
      */
     async initialize(): Promise<void> {
+        // Return existing promise if already initializing
+        if (this.initPromise) {
+            return this.initPromise;
+        }
+
+        // Already initialized
+        if (this.initialized) {
+            return;
+        }
+
+        this.initPromise = this._doInitialize();
+        return this.initPromise;
+    }
+
+    private async _doInitialize(): Promise<void> {
         try {
             const storedUsage = await this.storageService.getAllTokenUsage();
             for (const [conversationId, usage] of Object.entries(storedUsage)) {
@@ -54,10 +88,23 @@ export class TokenMonitor {
                 const isAboveThreshold = usage.totalTokens >= limit * (warningThreshold / 100);
                 this.warningShown.set(conversationId, isAboveThreshold);
             }
+            this.initialized = true;
             console.log('[TokenMonitor] Initialized with', this.usageMap.size, 'conversations');
         } catch (error) {
             console.error('[TokenMonitor] Failed to initialize:', error);
+            this.initialized = true; // Mark as initialized even on error to prevent retries
         }
+    }
+
+    /**
+     * Ensure initialization is complete before accessing data.
+     * This is useful when you need to guarantee data is loaded.
+     */
+    async ensureInitialized(): Promise<void> {
+        if (this.initialized) {
+            return;
+        }
+        await this.initialize();
     }
 
     /**
@@ -78,6 +125,7 @@ export class TokenMonitor {
 
     /**
      * Check if a call with estimated tokens would exceed the limit.
+     * Uses per-conversation usage for custom limits, global usage for global limits.
      * 
      * @param conversationId - The conversation identifier
      * @param estimatedTokens - Estimated tokens for the next call
@@ -85,15 +133,35 @@ export class TokenMonitor {
      */
     async checkLimit(conversationId: string, estimatedTokens: number): Promise<TokenCheckResult> {
         const currentUsage = this.getUsage(conversationId);
+        const globalUsage = this.getGlobalUsage();
         const limit = await this.getEffectiveLimit(conversationId);
-        const projectedUsage = currentUsage.totalTokens + estimatedTokens;
-        const remaining = limit - currentUsage.totalTokens;
+
+        // Check if this conversation has a custom limit set
+        const hasCustomLimit = this.usageMap.get(conversationId)?.limit !== undefined;
+
+        // Use per-conversation usage for custom limits, global usage for global limits
+        const usageToCheck = hasCustomLimit ? currentUsage.totalTokens : globalUsage.totalTokens;
+        const projectedUsage = usageToCheck + estimatedTokens;
+        const remaining = limit - usageToCheck;
+
+        console.log('[TokenMonitor] checkLimit:', {
+            conversationId,
+            conversationUsage: currentUsage.totalTokens,
+            globalUsage: globalUsage.totalTokens,
+            usageToCheck,
+            estimatedTokens,
+            projectedUsage,
+            limit,
+            hasCustomLimit,
+            allowed: projectedUsage <= limit,
+        });
 
         if (projectedUsage > limit) {
+            console.log('[TokenMonitor] BLOCKING - Token limit exceeded');
             return {
                 allowed: false,
-                reason: `Token limit exceeded. Current usage: ${currentUsage.totalTokens}, Estimated: ${estimatedTokens}, Limit: ${limit}. Please reset token usage or increase your limit in settings.`,
-                currentUsage: currentUsage.totalTokens,
+                reason: `Token limit exceeded. Current usage: ${usageToCheck}, Estimated: ${estimatedTokens}, Limit: ${limit}. Please reset token usage or increase your limit in settings.`,
+                currentUsage: usageToCheck,
                 limit,
                 remaining: Math.max(0, remaining),
             };
@@ -101,7 +169,7 @@ export class TokenMonitor {
 
         return {
             allowed: true,
-            currentUsage: currentUsage.totalTokens,
+            currentUsage: usageToCheck,
             limit,
             remaining,
         };
@@ -225,6 +293,7 @@ export class TokenMonitor {
     /**
      * Get the effective limit for a conversation.
      * Returns conversation-specific limit if set, otherwise global limit.
+     * Falls back to DEFAULT_TOKEN_LIMIT if SettingsService is unavailable.
      * 
      * @param conversationId - The conversation identifier
      * @returns The effective token limit
@@ -235,24 +304,34 @@ export class TokenMonitor {
             return usage.limit;
         }
 
-        try {
-            const settings = await this.settingsService.getSettings();
-            return settings.rateLimit ?? DEFAULT_TOKEN_LIMIT;
-        } catch {
-            return DEFAULT_TOKEN_LIMIT;
+        // Try to get from settings, fall back to default if SettingsService unavailable
+        if (this.settingsService) {
+            try {
+                const settings = await this.settingsService.getSettings();
+                return settings.rateLimit ?? DEFAULT_TOKEN_LIMIT;
+            } catch {
+                // Fall through to default
+            }
         }
+
+        return DEFAULT_TOKEN_LIMIT;
     }
 
     /**
      * Get the warning threshold percentage from settings.
+     * Falls back to DEFAULT_WARNING_THRESHOLD if SettingsService is unavailable.
      */
     private async getWarningThreshold(): Promise<number> {
-        try {
-            const settings = await this.settingsService.getSettings();
-            return settings.rateLimitWarningThreshold ?? DEFAULT_WARNING_THRESHOLD;
-        } catch {
-            return DEFAULT_WARNING_THRESHOLD;
+        if (this.settingsService) {
+            try {
+                const settings = await this.settingsService.getSettings();
+                return settings.rateLimitWarningThreshold ?? DEFAULT_WARNING_THRESHOLD;
+            } catch {
+                // Fall through to default
+            }
         }
+
+        return DEFAULT_WARNING_THRESHOLD;
     }
 
     /**
@@ -310,8 +389,9 @@ export class TokenMonitor {
 
     /**
      * Post token usage update to webview.
+     * Public to allow optimistic updates from Agent.
      */
-    private async postUsageUpdate(
+    async postUsageUpdate(
         conversationId: string,
         usage: TokenUsage,
         limit: number
@@ -323,6 +403,12 @@ export class TokenMonitor {
         const warningThreshold = await this.getWarningThreshold();
         const remaining = limit - usage.totalTokens;
         const percentUsed = Math.round((usage.totalTokens / limit) * 100);
+
+        console.log('[TokenMonitor] Posting usage update to webview:', {
+            conversationId,
+            totalTokens: usage.totalTokens,
+            webviewAvailable: !!this.webview,
+        });
 
         this.webview.postMessage({
             type: 'token-usage-update',
@@ -337,6 +423,49 @@ export class TokenMonitor {
                 warningThreshold,
             },
         });
+    }
+
+    /**
+     * Get aggregated usage across all conversations.
+     * Useful for displaying total usage in the UI.
+     * 
+     * @returns TokenUsage with combined totals from all conversations
+     */
+    getGlobalUsage(): TokenUsage {
+        let totalTokens = 0;
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let lastUpdated = 0;
+
+        for (const usage of this.usageMap.values()) {
+            totalTokens += usage.totalTokens;
+            inputTokens += usage.inputTokens;
+            outputTokens += usage.outputTokens;
+            if (usage.lastUpdated > lastUpdated) {
+                lastUpdated = usage.lastUpdated;
+            }
+        }
+
+        return {
+            conversationId: 'global',
+            totalTokens,
+            inputTokens,
+            outputTokens,
+            lastUpdated: lastUpdated || Date.now(),
+        };
+    }
+
+    /**
+     * Reset all usage across all conversations.
+     */
+    async resetAllUsage(): Promise<void> {
+        const conversationIds = Array.from(this.usageMap.keys());
+
+        for (const conversationId of conversationIds) {
+            await this.resetUsage(conversationId);
+        }
+
+        console.log('[TokenMonitor] All usage reset for', conversationIds.length, 'conversations');
     }
 
     /**

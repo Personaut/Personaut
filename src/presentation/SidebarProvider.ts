@@ -52,10 +52,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   ): void {
     this._view = webviewView;
 
+
+    // Prevent webview disposal when hidden (keeps builds running)
+    webviewView.retainContextWhenHidden = true;
     // Configure webview options
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.extensionUri],
+      
     };
 
     // Set webview HTML content
@@ -138,18 +142,32 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private isChatMessage(type: string): boolean {
     const chatMessageTypes = [
       'user-input',
+      'send-message', // New webview architecture uses this
       'get-conversations',
       'load-conversation',
       'delete-conversation',
       'clear-conversations',
       'new-conversation',
+      'new-chat',
       'check-session',
       'isolated-request',
       'get-active-file',
+      'add-active-file',
       'get-history',
+      'get-token-usage',
       'reset-token-usage',
       'open-file',
+      'open-external',
       'abort',
+      // Chat settings and session management
+      'get-chat-settings',
+      'update-chat-settings',
+      'create-session',
+      'switch-session',
+      'toggle-incognito',
+      'get-session-history',
+      'load-session-messages',
+      'select-persona',
     ];
     return chatMessageTypes.includes(type);
   }
@@ -186,6 +204,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       'get-feedback-by-persona',
       'get-feedback-by-type',
       'check-provider-image-support',
+      'capture-url-screenshot',
     ];
     return feedbackMessageTypes.includes(type);
   }
@@ -231,6 +250,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       'save-survey-response',
       // Cancel operations
       'cancel-operation',
+      // New webview architecture message types
+      'save-stage-data',
+      'load-stage-data',
+      'set-project-name',
+      'generate-personas',
+      'generate-features',
+      'generate-stories',
+      'generate-screens',
+      'start-build',
+      'stop-build',
+      'create-project',
+      'load-project',
+      'delete-project',
+      'start-iteration',
+      'stop-iteration',
+      'select-project',
     ];
     return buildModeMessageTypes.includes(type);
   }

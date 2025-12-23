@@ -107,19 +107,34 @@ describe('Property 9: Constant Naming', () => {
 
     const violations: Array<{ file: string; constant: string; line: number }> = [];
 
-    allFiles.forEach((filePath) => {
-      const constants = extractGlobalConstants(filePath);
+    // Files to exclude from constant naming checks (design tokens use camelCase by convention)
+    const excludedPatterns = [
+      /theme\.ts$/,
+      /theme\.config\.ts$/,
+      /tokens\.ts$/,
+    ];
 
-      constants.forEach(({ name, line }) => {
-        if (!isScreamingSnakeCase(name)) {
-          violations.push({
-            file: path.relative(srcDir, filePath),
-            constant: name,
-            line,
-          });
-        }
+    allFiles
+      .filter((filePath) => !excludedPatterns.some((pattern) => pattern.test(filePath)))
+      .forEach((filePath) => {
+        const constants = extractGlobalConstants(filePath);
+
+        constants.forEach(({ name, line }) => {
+          // Skip PascalCase names - these are React components by convention
+          const isPascalCase = /^[A-Z][a-zA-Z0-9]*$/.test(name);
+          if (isPascalCase) {
+            return;
+          }
+
+          if (!isScreamingSnakeCase(name)) {
+            violations.push({
+              file: path.relative(srcDir, filePath),
+              constant: name,
+              line,
+            });
+          }
+        });
       });
-    });
 
     if (violations.length > 0) {
       console.log('Constants not using SCREAMING_SNAKE_CASE:');

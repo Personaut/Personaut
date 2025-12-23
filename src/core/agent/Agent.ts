@@ -149,13 +149,15 @@ export class Agent {
     contextFiles: ContextFile[] = [],
     settings: AgentSettings = {},
     systemInstruction?: string,
-    isPersonaChat: boolean = false
+    isPersonaChat: boolean = false,
+    images?: string[] // Base64 encoded images
   ) {
     console.log('[Agent] chat called with settings:', {
       autoRead: settings.autoRead,
       autoWrite: settings.autoWrite,
       autoExecute: settings.autoExecute,
       conversationId: this.conversationId,
+      hasImages: images && images.length > 0,
     });
 
     if (systemInstruction) {
@@ -169,15 +171,47 @@ export class Agent {
 
     this.webview.postMessage({ mode: this.mode, type: 'add-message', role: 'user', text: input });
 
+    // Extract images from context files (base64 strings start with "data:image/")
+    const extractedImages: string[] = [];
+    const textFiles: ContextFile[] = [];
+
+    contextFiles.forEach((file) => {
+      if (file.content.startsWith('data:image/')) {
+        // This is a base64 image
+        extractedImages.push(file.content);
+        console.log('[Agent] Extracted image from context:', file.path);
+      } else {
+        // This is a text file
+        textFiles.push(file);
+      }
+    });
+
+    // Merge extracted images with any explicitly provided images
+    const allImages = [...(images || []), ...extractedImages];
+
     let fullMessage = input;
-    if (contextFiles.length > 0) {
+    if (textFiles.length > 0) {
       fullMessage += '\n\nContext Files:\n';
-      contextFiles.forEach((file) => {
+      textFiles.forEach((file) => {
         fullMessage += `\n--- ${file.path} ---\n${file.content}\n--- End of ${file.path} ---\n`;
       });
     }
 
-    this.messageHistory.push({ role: 'user', text: fullMessage });
+    // Add message to history with images if provided
+    this.messageHistory.push({
+      role: 'user',
+      text: fullMessage,
+      images: allImages && allImages.length > 0 ? allImages : undefined
+    });
+
+    console.log('[Agent] Message added to history:', {
+      conversationId: this.conversationId,
+      totalMessages: this.messageHistory.length,
+      roles: this.messageHistory.map(m => m.role),
+      lastMessage: fullMessage.substring(0, 50),
+      imageCount: allImages.length
+    });
+
     this.onDidUpdateMessages(this.messageHistory);
 
     try {
@@ -252,31 +286,52 @@ export class Agent {
 
       // Check token limits before making provider call
       if (this.tokenMonitor) {
-        // Estimate tokens for the last user message
+        // Estimate tokens for the last user message + system prompt
         const lastUserMessage = this.messageHistory[this.messageHistory.length - 1];
-        const estimatedTokens = lastUserMessage
+        const userMessageTokens = lastUserMessage
           ? this.tokenMonitor.estimateTokens(lastUserMessage.text)
           : 100; // Default estimate
 
+        // Also estimate the system prompt tokens (only for the first message in conversation)
+        // For subsequent messages, the system prompt is already counted in the conversation
+        const systemPromptTokens = this.messageHistory.length === 1
+          ? this.tokenMonitor.estimateTokens(dynamicSystemPrompt)
+          : 0;
+
+        const estimatedTokens = userMessageTokens + systemPromptTokens;
+
         const checkResult = await this.tokenMonitor.checkLimit(this.conversationId, estimatedTokens);
 
+        // Note: We don't post an optimistic update here because recordUsage() will
+        // post the actual usage after the response, and posting twice causes double-counting
+        // since recordUsage accumulates tokens rather than replacing them.
+
         if (!checkResult.allowed) {
-          this.webview.postMessage({
-            mode: this.mode,
-            type: 'add-message',
-            role: 'error',
-            text: `Token limit exceeded:\n\n${checkResult.reason}`,
-          });
-          this.webview.postMessage({
-            type: 'token-limit-error',
-            message: checkResult.reason || 'Token limit exceeded',
-            currentUsage: checkResult.currentUsage,
-            limit: checkResult.limit,
-          });
-          // Remove the user message that was just added
-          this.messageHistory.pop();
-          this.onDidUpdateMessages(this.messageHistory);
-          return;
+          // Show warning dialog and ask user if they want to proceed
+          const proceed = await vscode.window.showWarningMessage(
+            `Token limit exceeded. Current usage: ${checkResult.currentUsage}, Estimated: ${estimatedTokens}, Limit: ${checkResult.limit}. ` +
+            `Do you want to proceed anyway?`,
+            { modal: true },
+            'Proceed',
+            'Cancel'
+          );
+
+          if (proceed !== 'Proceed') {
+            // User chose to cancel
+            this.webview.postMessage({
+              mode: this.mode,
+              type: 'add-message',
+              role: 'error',
+              text: `Operation cancelled: Token limit exceeded.`,
+            });
+            // Remove the user message that was just added
+            this.messageHistory.pop();
+            this.onDidUpdateMessages(this.messageHistory);
+            return;
+          }
+
+          // User chose to proceed - log warning but continue
+          console.log('[Agent] User chose to proceed despite token limit warning');
         }
       }
 

@@ -2,6 +2,7 @@ import { Agent } from './Agent';
 import { AgentConfig, AgentSettings, ContextFile } from './AgentTypes';
 import { Message } from '../providers/IProvider';
 import * as vscode from 'vscode';
+import { TokenMonitor } from '../../shared/services/TokenMonitor';
 
 // Mock vscode
 jest.mock('vscode');
@@ -103,6 +104,7 @@ describe('Agent', () => {
   let mockWebview: jest.Mocked<vscode.Webview>;
   let mockOnDidUpdateMessages: jest.Mock;
   let agentConfig: AgentConfig;
+  let mockTokenMonitor: jest.Mocked<TokenMonitor>;
 
   // Mock config that matches what ensureInitialized() creates
   const mockCurrentConfig = {
@@ -124,6 +126,18 @@ describe('Agent', () => {
 
     // Setup mock callback
     mockOnDidUpdateMessages = jest.fn();
+
+    // Setup mock token monitor
+    mockTokenMonitor = {
+      checkLimit: jest.fn().mockResolvedValue({
+        allowed: true,
+        currentUsage: 0,
+        limit: 100000,
+        remaining: 100000,
+      }),
+      recordUsage: jest.fn().mockResolvedValue(undefined),
+      estimateTokens: jest.fn().mockReturnValue(100),
+    } as any;
 
     // Setup agent config
     agentConfig = {
@@ -190,6 +204,180 @@ describe('Agent', () => {
       const agent = new Agent(mockWebview, feedbackConfig);
 
       expect(agent.mode).toBe('feedback');
+    });
+  });
+
+  describe('token limit enforcement', () => {
+    it('should show warning dialog when token limit is exceeded', async () => {
+      const agent = new Agent(mockWebview, agentConfig, undefined, mockTokenMonitor);
+
+      // Mock token limit exceeded
+      mockTokenMonitor.checkLimit.mockResolvedValue({
+        allowed: false,
+        currentUsage: 95000,
+        limit: 100000,
+        remaining: 5000,
+        reason: 'Token limit exceeded',
+      });
+
+      // Mock user choosing to cancel
+      (vscode.window.showWarningMessage as jest.Mock).mockResolvedValue('Cancel');
+
+      const mockProvider = {
+        chat: jest.fn().mockResolvedValue({
+          text: 'Response',
+        }),
+      };
+      (agent as any).provider = mockProvider;
+      (agent as any).currentConfig = mockCurrentConfig;
+
+      await agent.chat('Test message');
+
+      // Should show warning dialog
+      expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Token limit exceeded'),
+        { modal: true },
+        'Proceed',
+        'Cancel'
+      );
+
+      // Should not call provider since user cancelled
+      expect(mockProvider.chat).not.toHaveBeenCalled();
+
+      // Should show cancellation message
+      expect(mockWebview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          role: 'error',
+          text: expect.stringContaining('Operation cancelled'),
+        })
+      );
+    });
+
+    it('should proceed when user chooses to continue despite token limit', async () => {
+      const agent = new Agent(mockWebview, agentConfig, undefined, mockTokenMonitor);
+
+      // Mock token limit exceeded
+      mockTokenMonitor.checkLimit.mockResolvedValue({
+        allowed: false,
+        currentUsage: 95000,
+        limit: 100000,
+        remaining: 5000,
+        reason: 'Token limit exceeded',
+      });
+
+      // Mock user choosing to proceed
+      (vscode.window.showWarningMessage as jest.Mock).mockResolvedValue('Proceed');
+
+      const mockProvider = {
+        chat: jest.fn().mockResolvedValue({
+          text: 'Response despite limit',
+          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+        }),
+      };
+      (agent as any).provider = mockProvider;
+      (agent as any).currentConfig = mockCurrentConfig;
+
+      await agent.chat('Test message');
+
+      // Should show warning dialog
+      expect(vscode.window.showWarningMessage).toHaveBeenCalled();
+
+      // Should proceed with API call
+      expect(mockProvider.chat).toHaveBeenCalled();
+
+      // Should record usage
+      expect(mockTokenMonitor.recordUsage).toHaveBeenCalledWith(
+        'test-conversation-id',
+        expect.objectContaining({
+          totalTokens: 150,
+        })
+      );
+    });
+
+    it('should estimate system prompt tokens on first message', async () => {
+      const agent = new Agent(mockWebview, agentConfig, undefined, mockTokenMonitor);
+
+      mockTokenMonitor.estimateTokens.mockReturnValue(100); // Default return value
+
+      const mockProvider = {
+        chat: jest.fn().mockResolvedValue({
+          text: 'Response',
+          usage: { inputTokens: 50, outputTokens: 50, totalTokens: 100 }, // Provide usage to avoid estimation
+        }),
+      };
+      (agent as any).provider = mockProvider;
+      (agent as any).currentConfig = mockCurrentConfig;
+
+      await agent.chat('First message');
+
+      // Should check limit with estimated tokens (user message + system prompt on first message)
+      expect(mockTokenMonitor.checkLimit).toHaveBeenCalledWith(
+        'test-conversation-id',
+        expect.any(Number)
+      );
+
+      // Should record actual usage from provider
+      expect(mockTokenMonitor.recordUsage).toHaveBeenCalledWith(
+        'test-conversation-id',
+        expect.objectContaining({
+          totalTokens: 100,
+        })
+      );
+    });
+
+    it('should not estimate system prompt tokens on subsequent messages', async () => {
+      const agent = new Agent(mockWebview, agentConfig, undefined, mockTokenMonitor);
+
+      mockTokenMonitor.estimateTokens.mockReturnValue(100);
+
+      const mockProvider = {
+        chat: jest.fn().mockResolvedValue({
+          text: 'Response',
+          usage: { inputTokens: 50, outputTokens: 50, totalTokens: 100 }, // Provide usage
+        }),
+      };
+      (agent as any).provider = mockProvider;
+      (agent as any).currentConfig = mockCurrentConfig;
+
+      // First message
+      await agent.chat('First message');
+
+      const firstCallEstimate = mockTokenMonitor.checkLimit.mock.calls[0][1];
+
+      jest.clearAllMocks();
+      mockTokenMonitor.estimateTokens.mockReturnValue(50);
+      mockTokenMonitor.checkLimit.mockResolvedValue({
+        allowed: true,
+        currentUsage: 100,
+        limit: 100000,
+        remaining: 99900,
+      });
+
+      // Second message
+      await agent.chat('Second message');
+
+      const secondCallEstimate = mockTokenMonitor.checkLimit.mock.calls[0][1];
+
+      // Second message should have smaller estimate (no system prompt)
+      expect(secondCallEstimate).toBeLessThan(firstCallEstimate);
+    });
+
+    it('should handle token monitor not being provided', async () => {
+      const agent = new Agent(mockWebview, agentConfig); // No token monitor
+
+      const mockProvider = {
+        chat: jest.fn().mockResolvedValue({
+          text: 'Response',
+        }),
+      };
+      (agent as any).provider = mockProvider;
+      (agent as any).currentConfig = mockCurrentConfig;
+
+      // Should not throw
+      await expect(agent.chat('Test message')).resolves.not.toThrow();
+
+      // Should still call provider
+      expect(mockProvider.chat).toHaveBeenCalled();
     });
   });
 

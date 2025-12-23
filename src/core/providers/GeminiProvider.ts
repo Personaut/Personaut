@@ -21,6 +21,12 @@ export class GeminiProvider implements IProvider {
   }
 
   async chat(history: Message[], systemPrompt: string): Promise<ProviderResponse> {
+    console.log('[GeminiProvider] chat called with:', {
+      historyLength: history.length,
+      historyRoles: history.map(m => m.role),
+      systemPromptLength: systemPrompt?.length || 0,
+    });
+
     // Get the last user message
     const lastUserMessage = history.filter((m) => m.role === 'user').pop();
 
@@ -36,16 +42,53 @@ export class GeminiProvider implements IProvider {
       .filter((m) => m.role !== 'error')
       .slice(0, -1)
       .forEach((m) => {
+        const parts: any[] = [{ text: m.text }];
+
+        // Add images if present
+        if (m.images && m.images.length > 0) {
+          m.images.forEach((imageData) => {
+            // Remove data URI prefix if present
+            const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+            parts.push({
+              inline_data: {
+                mime_type: 'image/png',
+                data: base64Data,
+              },
+            });
+          });
+        }
+
         contents.push({
           role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.text }],
+          parts: parts,
         });
       });
 
-    // Add the current message
+    // Add the current message with images if present
+    const currentParts: any[] = [{ text: lastUserMessage.text }];
+
+    if (lastUserMessage.images && lastUserMessage.images.length > 0) {
+      lastUserMessage.images.forEach((imageData) => {
+        // Remove data URI prefix if present
+        const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+        currentParts.push({
+          inline_data: {
+            mime_type: 'image/png',
+            data: base64Data,
+          },
+        });
+      });
+    }
+
     contents.push({
       role: 'user',
-      parts: [{ text: lastUserMessage.text }],
+      parts: currentParts,
+    });
+
+    console.log('[GeminiProvider] Sending to API:', {
+      contentsCount: contents.length,
+      contentsRoles: contents.map(c => c.role),
+      hasSystemPrompt: !!systemPrompt,
     });
 
     // Build the Vertex AI API URL (matching the working curl command structure)

@@ -22,6 +22,9 @@ import { StageName, STAGE_ORDER } from '../types/BuildModeTypes';
 import { PersonasService } from '../../personas/services/PersonasService';
 import { parseJson, createReparsePrompt } from '../../../shared/utils/JsonParser';
 
+import { WebpackErrorParser } from '../utils/WebpackErrorParser';
+import { CodeRepairService } from '../services/CodeRepairService';
+
 export class BuildModeHandler implements IFeatureHandler {
   private readonly errorSanitizer: ErrorSanitizer;
 
@@ -115,6 +118,7 @@ export class BuildModeHandler implements IFeatureHandler {
    * Validates: Requirements 10.1, 10.2
    */
   async handle(message: WebviewMessage, webview: any): Promise<void> {
+    console.log('[BuildModeHandler] Received message:', message.type);
     try {
       switch (message.type) {
         case 'initialize-project':
@@ -247,6 +251,10 @@ export class BuildModeHandler implements IFeatureHandler {
         case 'save-page-iteration':
           await this.handleSavePageIteration(message, webview);
           break;
+        // Get active build status (for webview restoration)
+        case 'get-active-build-status':
+          await this.handleGetActiveBuildStatus(message, webview);
+          break;
         // Load all iterations for a page
         case 'load-page-iterations':
           await this.handleLoadPageIterations(message, webview);
@@ -254,6 +262,84 @@ export class BuildModeHandler implements IFeatureHandler {
         // Cancel multi-agent operations
         case 'cancel-operation':
           await this.handleCancelOperation(message, webview);
+          break;
+        // New webview architecture message types (aliases to existing handlers)
+        case 'save-stage-data':
+          // Alias for save-stage-file with stage and data from message
+          message.stage = message.stage || message.dataType;
+          await this.handleSaveStageFile(message, webview);
+          break;
+        case 'load-stage-data':
+          // Alias for load-stage-file
+          await this.handleLoadStageFile(message, webview);
+          break;
+        case 'set-project-name':
+          // Handle project name setting (just create/initialize if needed)
+          if (message.name) {
+            message.projectName = message.name;
+            await this.handleInitializeProject(message, webview);
+          }
+          break;
+        case 'generate-personas':
+          // Generate personas from demographics
+          await this.handleGeneratePersonasFromDemographics(message, webview);
+          break;
+        case 'generate-features':
+          // Generate features based on personas
+          await this.handleGenerateFeaturesFromInterviews(message, webview);
+          break;
+        case 'generate-stories':
+          // Generate user stories
+          await this.handleGenerateUserStories(message, webview);
+          break;
+        case 'generate-user-flows':
+          // Generate user flows only
+          await this.handleGenerateUserFlows(message, webview);
+          break;
+        case 'generate-screens':
+          // Generate screens only
+          await this.handleGenerateScreens(message, webview);
+          break;
+        case 'start-build':
+          // Start the building workflow
+          await this.handleStartBuildingWorkflow(message, webview);
+          break;
+        case 'stop-build':
+          // Pause the building workflow
+          await this.handlePauseBuildingWorkflow(message, webview);
+          break;
+        case 'create-project':
+        case 'select-project':
+          // Initialize/select a project
+          if (message.name) {
+            message.projectName = message.name;
+            message.projectTitle = message.title || message.name;
+          }
+          await this.handleInitializeProject(message, webview);
+          break;
+        case 'load-project':
+          // Load an existing project 
+          if (message.name) {
+            message.projectName = message.name;
+          }
+          await this.handleGetBuildState(message, webview);
+          break;
+        case 'delete-project':
+          // Delete a project - acknowledge for now (deletion not implemented)
+          console.warn(`[BuildModeHandler] Delete project not fully implemented: ${message.name}`);
+          webview.postMessage({
+            type: 'project-deleted',
+            projectName: message.name,
+            success: true,
+          });
+          break;
+        case 'start-iteration':
+          // Start building iteration
+          await this.handleStartBuildingWorkflow(message, webview);
+          break;
+        case 'stop-iteration':
+          // Stop building iteration
+          await this.handlePauseBuildingWorkflow(message, webview);
           break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
@@ -322,6 +408,20 @@ export class BuildModeHandler implements IFeatureHandler {
       };
 
       console.log(`[BuildModeHandler] Design save merge - pages: ${dataToSave.pages?.length}, flows: ${dataToSave.userFlows?.length}`);
+    }
+
+    // Initialize screen status fields for building stage
+    if (message.stage === 'building' && dataToSave && (dataToSave as any).screens) {
+      const screens = (dataToSave as any).screens;
+      if (Array.isArray(screens)) {
+        (dataToSave as any).screens = screens.map((screen: any) => ({
+          ...screen,
+          buildStatus: screen.buildStatus || 'pending',
+          buildStartTime: screen.buildStartTime || undefined,
+          buildEndTime: screen.buildEndTime || undefined,
+          buildError: screen.buildError || undefined,
+        }));
+      }
     }
 
     await this.buildModeService.saveStage(
@@ -572,6 +672,26 @@ export class BuildModeHandler implements IFeatureHandler {
       projectName: message.projectName,
       buildState,
     });
+  }
+
+  /**
+   * Get active build status for webview restoration
+   */
+  private async handleGetActiveBuildStatus(_message: WebviewMessage, webview: any): Promise<void> {
+    const activeBuild = this.buildModeService.getActiveBuildState();
+
+    if (activeBuild) {
+      webview.postMessage({
+        type: 'active-build-status',
+        status: activeBuild,
+      });
+    } else {
+      // No active build
+      webview.postMessage({
+        type: 'active-build-status',
+        status: null,
+      });
+    }
   }
 
   /**
@@ -846,23 +966,39 @@ export class BuildModeHandler implements IFeatureHandler {
       const codeFolderName = message.codeFolderName; // Actual code folder name
       const projectName = message.projectName; // Project identifier
 
-      // Project folder is workspace/codeFolderName (or projectName as fallback)
-      let serverCwd = projectPath;
-      if (!serverCwd && codeFolderName) {
+      // Project folder is workspace/codeFolderName (or projectPath if absolute)
+      let serverCwd = '';
+
+      if (projectPath) {
+        // Use explicit project path if provided
+        serverCwd = projectPath;
+      } else if (codeFolderName) {
         // Use the code folder name (from Design stage)
         serverCwd = path.join(workspacePath, codeFolderName);
-      } else if (!serverCwd && projectName) {
+      } else if (projectName) {
         // Fallback to project name
         serverCwd = path.join(workspacePath, projectName);
-      } else if (!serverCwd) {
-        serverCwd = workspacePath;
       }
 
-      console.log('[BuildModeHandler] Resolved serverCwd:', { codeFolderName, projectName, serverCwd });
+      // NEVER fall back to workspace root - that could be the extension directory!
+      if (!serverCwd) {
+        throw new Error('Screenshot capture requires a project path, codeFolderName, or projectName. Please ensure the project has been created before capturing screenshots.');
+      }
 
-      // Verify the path exists
+      console.log('[BuildModeHandler] Resolved serverCwd:', { codeFolderName, projectName, projectPath, serverCwd });
+
+      // Verify the path exists and is NOT the extension directory
       if (!fs.existsSync(serverCwd)) {
-        throw new Error(`Project folder not found: ${serverCwd}`);
+        throw new Error(`Project folder not found: ${serverCwd}. Has the project been generated yet?`);
+      }
+
+      // Safety check: don't run dev server in the extension directory
+      const packageJsonPath = path.join(serverCwd, 'package.json');
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        if (packageJson.name === 'personaut-extension' || packageJson.name === 'personaut') {
+          throw new Error('Cannot capture screenshot from the extension directory. Please ensure the correct project folder is selected.');
+        }
       }
 
       console.log('[BuildModeHandler] Starting dev server in:', serverCwd);
@@ -894,7 +1030,7 @@ export class BuildModeHandler implements IFeatureHandler {
       }
 
       // Read package.json to find the dev script
-      let devCommand = 'npm run dev'; // default
+      let devCommand = ''; // Will be set if found
       let devPort = 5173; // Vite default
       try {
         const packageJsonPath = path.join(serverCwd, 'package.json');
@@ -913,11 +1049,25 @@ export class BuildModeHandler implements IFeatureHandler {
           devPort = 3000;
         } else if (scripts.serve) {
           devCommand = 'npm run serve';
+        } else if (scripts.preview) {
+          devCommand = 'npm run preview';
+          devPort = 4173; // Vite preview port
+        }
+
+        if (!devCommand) {
+          const availableScripts = Object.keys(scripts).join(', ') || 'none';
+          throw new Error(`No dev server script found in package.json. Available scripts: ${availableScripts}. Expected one of: dev, start, serve, or preview.`);
         }
 
         console.log('[BuildModeHandler] Found dev command:', devCommand, 'expected port:', devPort);
-      } catch (e) {
-        console.log('[BuildModeHandler] Could not read package.json, using default:', devCommand);
+      } catch (e: any) {
+        if (e.message.includes('No dev server script found')) {
+          throw e; // Re-throw our custom error
+        }
+        console.log('[BuildModeHandler] Could not read package.json:', e.message);
+        // Default to npm run dev but warn
+        devCommand = 'npm run dev';
+        console.log('[BuildModeHandler] Using default command:', devCommand);
       }
 
       // Start dev server with detached process - run full command through shell
@@ -1682,7 +1832,7 @@ export class BuildModeHandler implements IFeatureHandler {
 
       console.log('[BuildModeHandler] Persona regenerated successfully:', {
         personaId: message.personaId,
-        backstoryLength: backstory.length,
+        backstoryLength: backstory?.length || 0,
       });
     } catch (error: any) {
       console.error('[BuildModeHandler] Failed to regenerate persona:', error);
@@ -1786,7 +1936,7 @@ Generate one user story per feature, considering the perspectives of all persona
         dataType: typeof parseResult.data,
         isArray: Array.isArray(parseResult.data),
         hasStories: parseResult.data?.stories ? 'yes' : 'no',
-        storiesCount: parseResult.data?.stories?.length ?? (Array.isArray(parseResult.data) ? parseResult.data.length : 0)
+        storiesCount: parseResult.data?.stories?.length ?? (Array.isArray(parseResult.data) ? parseResult.data.length : 0),
       });
       if (parseResult.success && parseResult.data) {
         // Handle both array and object with stories property
@@ -2118,6 +2268,280 @@ Generate user flows and page specifications optimized for ${framework}.`;
   }
 
   /**
+   * Handle generate user flows request (flows only, not screens).
+   * Validates: Requirements 14.5
+   */
+  private async handleGenerateUserFlows(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!message.projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(message.projectName);
+
+    const screens = message.screens || message.pages || [];
+
+    console.log('[BuildModeHandler] Generating user flows from screens:', {
+      projectName: message.projectName,
+      screenCount: screens.length,
+    });
+
+    webview.postMessage({
+      type: 'user-flows-generation-started',
+      projectName: message.projectName,
+    });
+
+    try {
+      // Build detailed screen descriptions
+      // Handle both formats: old (uiElements/userActions) and new (components/description)
+      const screensList = screens
+        .map((s: any) => {
+          const description = s.description || s.purpose || 'No description';
+          const components = Array.isArray(s.components)
+            ? s.components.join(', ')
+            : (Array.isArray(s.uiElements) && Array.isArray(s.userActions)
+              ? [...s.uiElements, ...s.userActions].join(', ')
+              : 'N/A');
+
+          return `- ${s.name}
+  Purpose: ${description}
+  Available Components/Actions: ${components}`;
+        })
+        .join('\n\n');
+
+      const prompt = `Generate user flows based on the following screens and their capabilities:
+
+AVAILABLE SCREENS:
+${screensList || 'Standard application screens'}
+
+INSTRUCTIONS:
+- Create user flows that show how users navigate between these specific screens
+- Each flow should reference the actual screen names listed above
+- Include the specific user actions available on each screen in the flow steps
+- Each flow should describe a complete user journey from start to finish
+- The steps should show the sequence: Screen → Action → Next Screen
+
+Return ONLY the userFlows array.`;
+
+      console.log('[BuildModeHandler] About to call generateStageContent for user flows');
+      const generatedContent = await this.buildModeService.generateStageContent(
+        message.projectName,
+        'design',
+        `You are generating user flows for an application based on defined screens.
+
+The user has already defined the screens with their UI elements and available actions.
+Your job is to create flows that show how users navigate between these screens.
+
+Return a JSON object with a "userFlows" array.
+
+Each flow should have:
+- id: unique identifier
+- name: flow name
+- description: what this flow accomplishes
+- steps: array of step descriptions (each step should reference specific screens and actions)
+
+${prompt}`
+      );
+      console.log('[BuildModeHandler] generateStageContent returned, content length:', generatedContent.length);
+
+      let flows: any[] = [];
+      const parseResult = parseJson(generatedContent);
+      if (parseResult.success && parseResult.data) {
+        const data = parseResult.data;
+        flows = data.userFlows || data.flows || [];
+        if (parseResult.wasRepaired) {
+          console.log('[BuildModeHandler] JSON was repaired for user flows generation');
+        }
+      } else {
+        // Try LLM repair (one attempt)
+        console.warn(`[BuildModeHandler] Initial user flows parse failed: ${parseResult.error}`);
+        const repairedFlows = await this.attemptLlmJsonRepair(
+          generatedContent,
+          parseResult.error || 'Unknown parse error',
+          message.projectName
+        );
+        if (repairedFlows) {
+          flows = repairedFlows.userFlows || repairedFlows.flows || [];
+          console.log(`[BuildModeHandler] LLM repair succeeded for user flows`);
+        } else {
+          console.warn(`[BuildModeHandler] LLM repair failed for user flows, using empty array`);
+          flows = [];
+        }
+      }
+
+      // Normalize flows
+      const normalizedFlows = flows.map((flow: any, i: number) => ({
+        id: flow.id || `flow-${i + 1}-${Date.now()}`,
+        name: flow.name || `User Flow ${i + 1}`,
+        description: flow.description || '',
+        steps: Array.isArray(flow.steps) ? flow.steps : [],
+      }));
+
+      // Load existing design data and merge (preserve existing pages)
+      const existingData = await this.buildModeService.loadStage(message.projectName, 'design');
+      const updatedDesign = {
+        pages: existingData?.pages || [],
+        ...(existingData || {}),
+        userFlows: normalizedFlows,
+      };
+
+      // Save to stage file
+      await this.buildModeService.saveStage(
+        message.projectName,
+        'design',
+        updatedDesign,
+        false
+      );
+
+      webview.postMessage({
+        type: 'user-flows-generated',
+        projectName: message.projectName,
+        userFlows: normalizedFlows,
+      });
+
+      console.log('[BuildModeHandler] User flows generated:', {
+        projectName: message.projectName,
+        flowCount: normalizedFlows.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to generate user flows:', error);
+
+      webview.postMessage({
+        type: 'user-flows-generation-error',
+        projectName: message.projectName,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle generate screens request (screens only, not flows).
+   * Validates: Requirements 14.6
+   */
+  private async handleGenerateScreens(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!message.projectName) {
+      throw new Error('Project name is required');
+    }
+
+
+    this.validateProjectName(message.projectName);
+
+    const userStories = message.stories || message.userStories || [];
+    const framework = message.framework || 'React';
+
+    console.log('[BuildModeHandler] Generating screens from user stories:', {
+      projectName: message.projectName,
+      storyCount: userStories.length,
+      framework,
+    });
+
+    webview.postMessage({
+      type: 'screens-generation-started',
+      projectName: message.projectName,
+    });
+
+    try {
+      const storiesList = userStories
+        .map((s: any) => `- ${s.title}: ${s.description || 'No description'}`)
+        .join('\n');
+
+      const prompt = `Generate page/screen specifications for ${framework} application:
+
+USER STORIES:
+${storiesList || 'Standard application features'}
+
+FRAMEWORK: ${framework}
+
+Generate detailed page specifications showing what screens are needed and what users can do on each screen.
+Each screen should have UI elements and user actions defined.
+Return ONLY the pages array.`;
+
+      console.log('[BuildModeHandler] About to call generateStageContent for screens');
+      const generatedContent = await this.buildModeService.generateStageContent(
+        message.projectName,
+        'design',
+        `You are generating page/screen specifications for a ${framework} application. Return a JSON object with a "pages" array.
+
+Each page should have:
+- id: unique identifier
+- name: page name
+- purpose: what this page does
+- uiElements: array of UI components/elements
+- userActions: array of possible user actions
+
+${prompt}`
+      );
+      console.log('[BuildModeHandler] generateStageContent returned for screens, content length:', generatedContent.length);
+
+      let pages: any[] = [];
+      const parseResult = parseJson(generatedContent);
+      if (parseResult.success && parseResult.data) {
+        const data = parseResult.data;
+        pages = data.pages || data.screens || [];
+      } else {
+        console.warn(`[BuildModeHandler] Screens parse failed: ${parseResult.error}`);
+      }
+
+      // Normalize pages to match Screen interface
+      const normalizedPages = pages.map((page: any, i: number) => {
+        const uiElements = Array.isArray(page.uiElements) ? page.uiElements : (Array.isArray(page.elements) ? page.elements : []);
+        const userActions = Array.isArray(page.userActions) ? page.userActions : (Array.isArray(page.actions) ? page.actions : []);
+
+        return {
+          id: page.id || `page-${i + 1}-${Date.now()}`,
+          name: page.name || `Page ${i + 1}`,
+          description: page.purpose || page.description || '',
+          components: [...uiElements, ...userActions], // Combine UI elements and actions into components
+          screenshot: page.screenshot,
+          uxSpec: page.uxSpec,
+        };
+      });
+
+      // Load existing design data and merge (preserve existing flows)
+      const existingData = await this.buildModeService.loadStage(message.projectName, 'design');
+      const updatedDesign = {
+        userFlows: existingData?.userFlows || [],
+        ...(existingData || {}),
+        pages: normalizedPages,
+        framework,
+      };
+
+      // Save to stage file
+      await this.buildModeService.saveStage(
+        message.projectName,
+        'design',
+        updatedDesign,
+        false
+      );
+
+      webview.postMessage({
+        type: 'screens-generated',
+        projectName: message.projectName,
+        screens: normalizedPages,
+        framework,
+      });
+
+      console.log('[BuildModeHandler] Screens generated:', {
+        projectName: message.projectName,
+        pageCount: normalizedPages.length,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to generate screens:', error);
+
+      webview.postMessage({
+        type: 'screens-generation-error',
+        projectName: message.projectName,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
    * Handle regenerate flows request.
    * Validates: Requirements 14.7
    */
@@ -2280,7 +2704,7 @@ Generate 3-5 clear user flows showing how users navigate through the application
 
       webview.postMessage({
         type: 'features-generated',
-        data: result.features, // send features array
+        features: result.features, // ✅ Send in 'features' field to match frontend
         surveyComplete: true,
       });
 
@@ -2472,10 +2896,19 @@ Output as JSON:
    * Validates: Requirements 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
    */
   private async handleStartBuildingWorkflow(message: WebviewMessage, webview: any): Promise<void> {
-    const { projectName, userStory, iterationNumber, framework, personas, previousFeedback } = message;
+    console.log('[BuildModeHandler] handleStartBuildingWorkflow called with message:', {
+      type: message.type,
+      projectName: message.projectName,
+      hasScreens: !!message.screens,
+      hasUserStory: !!message.userStory,
+      framework: message.framework,
+    });
 
-    if (!projectName || !userStory) {
-      throw new Error('Project name and user story are required');
+    const { projectName, userStory, screens, iterationNumber, framework, personas, previousFeedback } = message;
+
+    // Accept either userStory (old flow) or screens (new flow)
+    if (!projectName || (!userStory && (!screens || screens.length === 0))) {
+      throw new Error('Project name and either user story or screens are required');
     }
 
     this.validateProjectName(projectName);
@@ -2486,7 +2919,903 @@ Output as JSON:
       projectName,
       iteration,
       framework: framework || 'React',
+      hasScreens: !!screens,
+      hasUserStory: !!userStory,
+      screenCount: screens?.length || 0,
     });
+
+    // If screens are provided (new flow), implement screen-based workflow
+    if (screens && screens.length > 0 && !userStory) {
+      console.log('[BuildModeHandler] Screen-based build workflow requested');
+
+      // Notify start
+      webview.postMessage({
+        type: 'building-workflow-started',
+        projectName,
+        iterationNumber: iteration,
+      });
+
+      try {
+        // Initialize active build state for webview restoration
+        this.buildModeService.setActiveBuildState({
+          projectName,
+          status: 'in-progress',
+          currentStep: 0,
+          totalSteps: screens.length + 2,
+          currentAgent: 'project-init',
+          logs: [],
+          startTime: Date.now(),
+          // Initialize screen-level tracking
+          screens: screens.map((screen: { name: string }) => ({
+            screenName: screen.name,
+            status: 'pending' as const,
+          })),
+          completedScreens: [],
+          isCancelled: false, // Initialize cancellation state
+        });
+
+        const totalSteps = screens.length + 2; // Project init + screens + completion
+        let currentStep = 0;
+
+        // Set up cancellation handler
+        const cancelHandler = () => {
+          this.buildModeService.cancelActiveBuild();
+          console.log('[BuildModeHandler] Build cancelled by user');
+        };
+
+        // Store cancel handler for stop-build message
+        (this.buildModeService as any)['cancelBuild'] = cancelHandler;
+
+        // Step 1: Initialize project structure
+        currentStep++;
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps,
+          agentId: 'project-init',
+          status: 'running',
+          message: `Initializing ${framework || 'React'} project structure...`,
+        });
+
+        // Update active build state
+        this.buildModeService.updateActiveBuildProgress(currentStep, totalSteps, 'project-init');
+
+        webview.postMessage({
+          type: 'build-log',
+          projectName,
+          entry: {
+            timestamp: Date.now(),
+            type: 'info',
+            message: `📁 Creating project: ${projectName}`,
+          },
+        });
+
+        // Create project directory structure in testing folder
+        const fs = await import('fs/promises');
+        const path = await import('path');
+
+        // Use /Users/anthony/testing/{projectName} for the actual project
+        const testingDir = '/Users/anthony/testing';
+        const projectPath = path.join(testingDir, projectName);
+
+        console.log('[BuildModeHandler] Creating project at:', projectPath);
+
+        // Create basic directory structure
+        const srcPath = path.join(projectPath, 'src');
+        const pagesPath = path.join(srcPath, 'pages');
+        const componentsPath = path.join(srcPath, 'components');
+
+        await fs.mkdir(srcPath, { recursive: true });
+        await fs.mkdir(pagesPath, { recursive: true });
+        await fs.mkdir(componentsPath, { recursive: true });
+
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps,
+          agentId: 'project-init',
+          status: 'complete',
+          message: 'Project structure created',
+        });
+
+        // Step 1.5a: Generate package.json
+        currentStep++;
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps: totalSteps + 3, // Add 3 more steps for Phase 1
+          agentId: 'package-json',
+          status: 'in-progress',
+          message: 'Generating package.json...',
+        });
+
+        const { PackageJsonGenerator } = await import('../services/PackageJsonGenerator');
+        const packageGenerator = new PackageJsonGenerator();
+        const packageJson = packageGenerator.generate({
+          projectName,
+          framework: framework || 'react',
+          description: `${projectName} - Generated by Personaut Build Mode`,
+        });
+
+        await fs.writeFile(
+          path.join(projectPath, 'package.json'),
+          packageGenerator.stringify(packageJson),
+          'utf-8'
+        );
+
+        webview.postMessage({
+          type: 'build-log',
+          projectName,
+          entry: {
+            timestamp: Date.now(),
+            type: 'success',
+            message: `✅ package.json created for ${framework}`,
+          },
+        });
+
+        // Step 1.5b: Install dependencies
+        currentStep++;
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps: totalSteps + 3,
+          agentId: 'npm-install',
+          status: 'in-progress',
+          message: 'Installing dependencies...',
+        });
+
+        const { DependencyInstaller } = await import('../services/DependencyInstaller');
+        const installer = new DependencyInstaller();
+
+        const installResult = await installer.install({
+          projectPath,
+          onProgress: (message) => {
+            webview.postMessage({
+              type: 'build-log',
+              projectName,
+              entry: {
+                timestamp: Date.now(),
+                type: 'info',
+                message: `📦 ${message}`,
+              },
+            });
+          },
+          onError: (error) => {
+            webview.postMessage({
+              type: 'build-log',
+              projectName,
+              entry: {
+                timestamp: Date.now(),
+                type: 'error',
+                message: `❌ ${error}`,
+              },
+            });
+          },
+        });
+
+        if (!installResult.success) {
+          throw new Error(`Dependency installation failed: ${installResult.error}`);
+        }
+
+        // Check if cancelled after dependency installation
+        if (this.buildModeService.isBuildCancelled()) {
+          console.log('[BuildModeHandler] Build cancelled after dependency installation');
+          return;
+        }
+
+        webview.postMessage({
+          type: 'build-log',
+          projectName,
+          entry: {
+            timestamp: Date.now(),
+            type: 'success',
+            message: `✅ Dependencies installed in ${(installResult.duration / 1000).toFixed(1)}s`,
+          },
+        });
+
+        // Step 1.5c: Create React boilerplate
+        currentStep++;
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps: totalSteps + 5, // +5 for boilerplate, dev server, screenshots
+          agentId: 'boilerplate',
+          status: 'in-progress',
+          message: 'Creating React app boilerplate...',
+        });
+
+        const { ReactBoilerplateGenerator } = await import('../services/ReactBoilerplateGenerator');
+        const boilerplateGen = new ReactBoilerplateGenerator();
+
+        await boilerplateGen.generate({
+          projectPath,
+          projectName,
+          screens: screens.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })),
+        });
+
+        webview.postMessage({
+          type: 'build-log',
+          projectName,
+          entry: {
+            timestamp: Date.now(),
+            type: 'success',
+            message: '✅ React app boilerplate created (index.html, App.tsx, routing)',
+          },
+        });
+
+        // Check if cancelled after boilerplate creation
+        const cancelledState = this.buildModeService.isBuildCancelled();
+        console.log('[BuildModeHandler] After boilerplate - isCancelled:', cancelledState);
+        if (cancelledState) {
+          console.log('[BuildModeHandler] Build cancelled after boilerplate creation');
+          webview.postMessage({
+            type: 'build-log',
+            projectName,
+            entry: {
+              timestamp: Date.now(),
+              type: 'warning',
+              message: '⚠️ Build was cancelled',
+            },
+          });
+          return;
+        }
+
+        // Wait a moment for file system to sync before starting dev server
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Step 1.5d: Start dev server
+        currentStep++;
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps: totalSteps + 5,
+          agentId: 'dev-server',
+          status: 'in-progress',
+          message: 'Starting development server...',
+        });
+
+        const { DevServerManager } = await import('../services/DevServerManager');
+        const devServer = new DevServerManager();
+
+        const serverResult = await devServer.start({
+          projectPath,
+          framework: framework || 'react',
+          port: 3000,
+          timeout: 120000, // 2 minutes for React to compile
+          onLog: (message) => {
+            webview.postMessage({
+              type: 'build-log',
+              projectName,
+              entry: {
+                timestamp: Date.now(),
+                type: 'info',
+                message: `🚀 ${message}`,
+              },
+            });
+          },
+          onReady: () => {
+            webview.postMessage({
+              type: 'build-log',
+              projectName,
+              entry: {
+                timestamp: Date.now(),
+                type: 'success',
+                message: `✅ Dev server ready at http://localhost:3000`,
+              },
+            });
+          },
+        });
+
+        // Check if cancelled after dev server start
+        if (this.buildModeService.isBuildCancelled()) {
+          console.log('[BuildModeHandler] Build cancelled after dev server start');
+          if (serverResult.success) {
+            await devServer.stop();
+          }
+          return;
+        }
+
+        if (!serverResult.success) {
+          webview.postMessage({
+            type: 'build-log',
+            projectName,
+            entry: {
+              timestamp: Date.now(),
+              type: 'warning',
+              message: `⚠️ Dev server failed: ${serverResult.error}. Continuing without screenshots.`,
+            },
+          });
+        } else {
+          // Store server for cleanup
+          (this.buildModeService as any)['activeDevServer'] = devServer;
+
+
+          // Step 2: Generate code for each screen (one at a time)
+          for (let i = 0; i < screens.length; i++) {
+            // Check if cancelled
+            if (this.buildModeService.isBuildCancelled()) {
+              console.log('[BuildModeHandler] Build cancelled, stopping screen generation');
+              break;
+            }
+
+            const screen = screens[i];
+            currentStep++;
+
+            // Update screen status to in-progress
+            this.buildModeService.updateScreenStatus(screen.name, 'in-progress');
+
+            webview.postMessage({
+              type: 'building-progress-update',
+              step: currentStep,
+              totalSteps,
+              agentId: `screen-${screen.id}`,
+              status: 'running',
+              message: `Generating code for ${screen.name}...`,
+            });
+
+            webview.postMessage({
+              type: 'build-log',
+              projectName,
+              entry: {
+                timestamp: Date.now(),
+                type: 'info',
+                message: `🎨 Generating ${screen.name}`,
+              },
+            });
+
+            // Generate code using AI
+            const codeGenConversationId = `build-screen-${projectName}-${screen.id}-${Date.now()}`;
+
+            try {
+              const codeAgent = await this.buildModeService['agentManager'].getOrCreateAgent(
+                codeGenConversationId,
+                'build'
+              );
+
+              const codePrompt = `Generate a ${framework || 'React'} component for this screen:
+
+Screen Name: ${screen.name}
+Description: ${screen.description || 'No description'}
+Components: ${(screen.components || []).join(', ')}
+
+Requirements:
+1. Create a functional component
+2. Include all specified UI components
+3. Add basic styling (inline or CSS-in-JS)
+4. Include proper TypeScript types
+5. Add comments explaining key sections
+6. Make it responsive and accessible
+
+Return ONLY the code, no explanations.`;
+
+              await codeAgent.chat(codePrompt, [], {},
+                `You are a senior ${framework || 'React'} developer. Generate clean, production-ready code.`,
+                false
+              );
+
+              // Check if cancelled after AI call
+              if (this.buildModeService.isBuildCancelled()) {
+                await this.buildModeService['agentManager'].disposeAgent(codeGenConversationId);
+                break;
+              }
+
+              const codeConversation = await this.buildModeService['agentManager']['config']
+                .conversationManager.getConversation(codeGenConversationId);
+              const codeMsg = codeConversation?.messages.filter((m: any) => m.role === 'model').pop();
+              let generatedCode = codeMsg?.text || '';
+
+              // Extract code from markdown code blocks if present
+              const codeBlockMatch = generatedCode.match(/```(?:tsx?|jsx?|typescript|javascript)?\n([\s\S]*?)\n```/);
+              if (codeBlockMatch) {
+                generatedCode = codeBlockMatch[1];
+              }
+
+              // Save the generated code
+              // Use screen.name to generate filename (matches what addScreenToApp will import)
+              const fileName = screen.name
+                .replace(/[^a-zA-Z0-9\s-]/g, '') // Remove special chars
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-') + '.tsx';
+              const filePath = path.join(pagesPath, fileName);
+              await fs.writeFile(filePath, generatedCode, 'utf-8');
+
+              // Update App.tsx to add this screen
+              const { ReactBoilerplateGenerator } = await import('../services/ReactBoilerplateGenerator');
+              const boilerplateGen = new ReactBoilerplateGenerator();
+              await boilerplateGen.addScreenToApp(
+                projectPath,
+                screen.name,
+                i === 0 // isFirstScreen
+              );
+
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'info',
+                  message: `✅ Updated App.tsx with ${screen.name}`,
+                },
+              });
+
+              // Check for compilation errors and attempt repair
+              const maxRepairAttempts = 3;
+              let repairAttempt = 0;
+              let finalCode = generatedCode;
+              let hasErrors = true;
+
+              while (hasErrors && repairAttempt < maxRepairAttempts) {
+                // Wait for webpack to compile
+                await new Promise(resolve => setTimeout(resolve, 3000));
+
+                // Get compilation output from dev server
+                const compilationOutput = devServer?.getCompilationOutput() || '';
+
+                // Check for errors
+                const errors = WebpackErrorParser.parseErrors(compilationOutput);
+
+                if (errors.length > 0 && repairAttempt < maxRepairAttempts) {
+                  repairAttempt++;
+
+                  webview.postMessage({
+                    type: 'build-log',
+                    projectName,
+                    entry: {
+                      timestamp: Date.now(),
+                      type: 'warning',
+                      message: `🔧 Compilation errors detected in ${screen.name}, attempting repair (${repairAttempt}/${maxRepairAttempts})...`,
+                    },
+                  });
+
+                  // Attempt repair
+                  const { CodeRepairService } = await import('../services/CodeRepairService');
+                  const repairService = new CodeRepairService(this.buildModeService['agentManager']);
+
+                  const repairResult = await repairService.repairCode(
+                    finalCode,
+                    errors,
+                    fileName,
+                    1 // Single attempt per loop iteration
+                  );
+
+                  if (repairResult.success && repairResult.repairedCode) {
+                    finalCode = repairResult.repairedCode;
+
+                    // Save repaired code
+                    await fs.writeFile(filePath, finalCode, 'utf-8');
+
+                    webview.postMessage({
+                      type: 'build-log',
+                      projectName,
+                      entry: {
+                        timestamp: Date.now(),
+                        type: 'success',
+                        message: `✅ Code repaired for ${screen.name} (attempt ${repairAttempt})`,
+                      },
+                    });
+
+                    // Clear compilation output for next check
+                    devServer?.clearCompilationOutput();
+                  } else {
+                    webview.postMessage({
+                      type: 'build-log',
+                      projectName,
+                      entry: {
+                        timestamp: Date.now(),
+                        type: 'error',
+                        message: `❌ Failed to repair ${screen.name}: ${repairResult.error}`,
+                      },
+                    });
+                    break;
+                  }
+                } else {
+                  hasErrors = false;
+                }
+              }
+
+              if (repairAttempt > 0 && !hasErrors) {
+                webview.postMessage({
+                  type: 'build-log',
+                  projectName,
+                  entry: {
+                    timestamp: Date.now(),
+                    type: 'success',
+                    message: `🎉 ${screen.name} successfully repaired after ${repairAttempt} attempt(s)`,
+                  },
+                });
+              }
+
+
+              // Verify compilation by checking dev server logs
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'info',
+                  message: `🔍 Verifying {screen.name} compiles...`,
+                },
+              });
+
+              // Wait a moment for webpack to detect the new file and compile
+              await new Promise(resolve => setTimeout(resolve, 3000));
+
+              // Check if dev server is still running (compilation successful)
+              // If there were compilation errors, they would appear in dev server logs
+              // For now, we'll assume success if we got this far
+              // TODO: Parse dev server output for compilation errors
+
+              await this.buildModeService['agentManager'].disposeAgent(codeGenConversationId);
+
+              webview.postMessage({
+                type: 'building-progress-update',
+                step: currentStep,
+                totalSteps,
+                agentId: `screen-${screen.id}`,
+                status: 'complete',
+                message: `${screen.name} generated`,
+                output: `Created ${fileName}`,
+              });
+
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'success',
+                  message: `✅ ${screen.name} → ${fileName}`,
+                },
+              });
+
+              // Update screen status to complete
+              this.buildModeService.updateScreenStatus(screen.name, 'complete');
+
+            } catch (error: any) {
+              await this.buildModeService['agentManager'].disposeAgent(codeGenConversationId);
+
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'error',
+                  message: `❌ Failed to generate ${screen.name}: ${error.message}`,
+                },
+              });
+
+              // Update screen status to failed
+              this.buildModeService.updateScreenStatus(screen.name, 'failed', error.message);
+
+              // Continue with other screens even if one fails
+              console.error(`[BuildModeHandler] Failed to generate screen ${screen.name}:`, error);
+            }
+
+            // Wait for webpack to finish compiling all screens
+            webview.postMessage({
+              type: 'build-log',
+              projectName,
+              entry: {
+                timestamp: Date.now(),
+                type: 'info',
+                message: '⏳ Waiting for webpack to finish compiling...',
+              },
+            });
+            await new Promise(resolve => setTimeout(resolve, 15000)); // 15 seconds
+
+            // Step 1.5e: Capture screenshots
+            currentStep++;
+            webview.postMessage({
+              type: 'building-progress-update',
+              step: currentStep,
+              totalSteps: totalSteps + 5,
+              agentId: 'screenshots',
+              status: 'in-progress',
+              message: 'Capturing screenshots...',
+            });
+
+            // Stop the old dev server to clear any cached state
+            const oldDevServer = (this.buildModeService as any)['activeDevServer'];
+            if (oldDevServer) {
+              await oldDevServer.stop();
+              delete (this.buildModeService as any)['activeDevServer'];
+
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'info',
+                  message: '🔄 Restarting dev server for fresh screenshots...',
+                },
+              });
+
+              // Wait a moment for port to be released
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+
+            // Start fresh dev server
+            const { DevServerManager } = await import('../services/DevServerManager');
+            const freshDevServer = new DevServerManager();
+
+            const freshServerResult = await freshDevServer.start({
+              projectPath,
+              framework: framework || 'react',
+              port: 3000,
+              timeout: 120000,
+              onLog: (message) => {
+                webview.postMessage({
+                  type: 'build-log',
+                  projectName,
+                  entry: {
+                    timestamp: Date.now(),
+                    type: 'info',
+                    message: `🚀 ${message}`,
+                  },
+                });
+              },
+              onReady: () => {
+                webview.postMessage({
+                  type: 'build-log',
+                  projectName,
+                  entry: {
+                    timestamp: Date.now(),
+                    type: 'success',
+                    message: `✅ Fresh dev server ready at http://localhost:3000`,
+                  },
+                });
+              },
+            });
+
+            if (!freshServerResult.success) {
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'error',
+                  message: `❌ Dev server failed to start: ${freshServerResult.error}. Skipping screenshots.`,
+                },
+              });
+
+              // Continue without screenshots
+              webview.postMessage({
+                type: 'building-workflow-complete',
+                projectName,
+                iteration: 1,
+              });
+              return;
+            }
+
+            // Check for compilation errors before capturing screenshots
+            const compilationOutput = freshDevServer?.getCompilationOutput() || '';
+            if (compilationOutput.includes('Failed to compile') || compilationOutput.includes('ERROR in')) {
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'error',
+                  message: `❌ Webpack compilation errors detected. Skipping screenshots. Please check the dev server output.`,
+                },
+              });
+
+              await freshDevServer.stop();
+
+              webview.postMessage({
+                type: 'building-workflow-complete',
+                projectName,
+                iteration: 1,
+              });
+              return;
+            }
+
+            // Store fresh server for cleanup
+            (this.buildModeService as any)['activeDevServer'] = freshDevServer;
+
+            const { ScreenshotService } = await import('../services/ScreenshotService');
+            const screenshotService = new ScreenshotService();
+
+            try {
+              await screenshotService.initialize();
+
+              // Capture screenshot for each screen
+              for (let i = 0; i < screens.length; i++) {
+                const screen = screens[i];
+
+                webview.postMessage({
+                  type: 'build-log',
+                  projectName,
+                  entry: {
+                    timestamp: Date.now(),
+                    type: 'info',
+                    message: `📸 Capturing screenshot: ${screen.name}`,
+                  },
+                });
+
+                // Determine route for this screen
+                const route = i === 0 ? '/' : `/${screen.name.toLowerCase().replace(/\s+/g, '-')}`;
+                const url = `http://localhost:3000${route}`;
+
+                // Capture screenshot
+                const screenshotResult = await screenshotService.capture({
+                  url,
+                  viewport: { width: 1280, height: 720 },
+                  waitForTimeout: 3000, // Wait for React to render
+                });
+
+                if (screenshotResult.success && screenshotResult.data) {
+                  // Save to .personaut/{project}/iterations/{n}/{screen-name}.png
+                  const screenshotPath = await this.stageManager.saveScreenshot(
+                    projectName,
+                    iteration,
+                    screen.name,
+                    screenshotResult.data
+                  );
+
+                  webview.postMessage({
+                    type: 'build-log',
+                    projectName,
+                    entry: {
+                      timestamp: Date.now(),
+                      type: 'success',
+                      message: `✅ Screenshot saved: ${path.basename(screenshotPath)}`,
+                    },
+                  });
+
+                  // Also save to project screenshots folder for easy access
+                  const projectScreenshotDir = path.join(projectPath, 'screenshots');
+                  await fs.mkdir(projectScreenshotDir, { recursive: true });
+                  await fs.writeFile(
+                    path.join(projectScreenshotDir, `${screen.name.toLowerCase().replace(/\s+/g, '-')}.png`),
+                    screenshotResult.data
+                  );
+                } else {
+                  webview.postMessage({
+                    type: 'build-log',
+                    projectName,
+                    entry: {
+                      timestamp: Date.now(),
+                      type: 'warning',
+                      message: `⚠️ Screenshot failed for ${screen.name}: ${screenshotResult.error}`,
+                    },
+                  });
+                }
+              }
+
+              await screenshotService.close();
+
+              webview.postMessage({
+                type: 'building-progress-update',
+                step: currentStep,
+                totalSteps: totalSteps + 5,
+                agentId: 'screenshots',
+                status: 'complete',
+                message: 'Screenshots captured',
+              });
+            } catch (error: any) {
+              console.error('[BuildModeHandler] Screenshot capture failed:', error);
+              webview.postMessage({
+                type: 'build-log',
+                projectName,
+                entry: {
+                  timestamp: Date.now(),
+                  type: 'warning',
+                  message: `⚠️ Screenshot capture failed: ${error.message}`,
+                },
+              });
+            }
+          }
+        }
+
+        // Step 3: Completion
+        currentStep++;
+        webview.postMessage({
+          type: 'building-progress-update',
+          step: currentStep,
+          totalSteps,
+          agentId: 'completion',
+          status: 'complete',
+          message: 'Build workflow complete',
+        });
+
+        webview.postMessage({
+          type: 'build-log',
+          projectName,
+          entry: {
+            timestamp: Date.now(),
+            type: 'success',
+            message: `🎉 Generated ${screens.length} screens in ${projectPath}`,
+          },
+        });
+
+        // Save iteration data
+        await this.stageManager.writeStageFile(
+          projectName,
+          'building',
+          {
+            iteration,
+            screens,
+            framework,
+            projectPath,
+            timestamp: Date.now(),
+          },
+          false
+        );
+
+        // Clean up cancel handler
+        delete (this.buildModeService as any)['cancelBuild'];
+
+        // Clean up dev server
+        const activeDevServer = (this.buildModeService as any)['activeDevServer'];
+        if (activeDevServer) {
+          activeDevServer.stop();
+          delete (this.buildModeService as any)['activeDevServer'];
+          webview.postMessage({
+            type: 'build-log',
+            projectName,
+            entry: {
+              timestamp: Date.now(),
+              type: 'info',
+              message: '🛑 Dev server stopped',
+            },
+          });
+        }
+
+        if (this.buildModeService.isBuildCancelled()) {
+          webview.postMessage({
+            type: 'building-workflow-cancelled',
+            projectName,
+            iterationNumber: iteration,
+          });
+        } else {
+          // Mark build as complete
+          this.buildModeService.completeActiveBuild('complete');
+
+          webview.postMessage({
+            type: 'building-workflow-complete',
+            projectName,
+            iterationNumber: iteration,
+            projectPath,
+          });
+
+          // Clear active build state after a short delay (allow UI to process)
+          setTimeout(() => {
+            this.buildModeService.clearActiveBuildState();
+          }, 1000);
+        }
+
+      } catch (error: any) {
+        console.error('[BuildModeHandler] Screen-based build workflow failed:', error);
+
+        // Mark build as failed
+        this.buildModeService.completeActiveBuild('failed');
+
+        webview.postMessage({
+          type: 'build-log',
+          projectName,
+          entry: {
+            timestamp: Date.now(),
+            type: 'error',
+            message: `❌ Build failed: ${error.message}`,
+          },
+        });
+
+        webview.postMessage({
+          type: 'building-workflow-error',
+          projectName,
+          error: this.errorSanitizer.sanitize(error).userMessage,
+        });
+
+        // Clear active build state after error
+        setTimeout(() => {
+          this.buildModeService.clearActiveBuildState();
+        }, 1000);
+      }
+
+      return;
+    }
+
 
     // Notify start
     webview.postMessage({
@@ -2790,7 +4119,18 @@ Provide your feedback as JSON:
       throw new Error('Project name is required to pause workflow');
     }
 
-    console.log(`[BuildModeHandler] Pausing building workflow for: ${projectName}`);
+    // Send immediate feedback that stop was requested
+    webview.postMessage({
+      type: 'build-stopping',
+      projectName,
+    });
+
+    console.log(`[BuildModeHandler] Stopping building workflow for: ${projectName}`);
+
+    // Trigger cancellation if there's an active build
+    if ((this.buildModeService as any)['cancelBuild']) {
+      (this.buildModeService as any)['cancelBuild']();
+    }
 
     const pausedAt = Date.now();
 

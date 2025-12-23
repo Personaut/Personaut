@@ -30,8 +30,8 @@ import {
 const STORAGE_KEY = 'conversationHistory';
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_TITLE_LENGTH = 50;
-/** Max conversations to keep in globalState to prevent storage bloat */
-const MAX_STORED_CONVERSATIONS = 20;
+/** Default max conversations - can be overridden by settings */
+const DEFAULT_MAX_STORED_CONVERSATIONS = 1000;
 /** Max messages per conversation to prevent individual conversations from bloating */
 const MAX_MESSAGES_PER_CONVERSATION = 100;
 
@@ -78,10 +78,43 @@ export class ConversationManager {
   constructor(private readonly storage: ConversationStorage) { }
 
   /**
+   * Get the maximum number of conversations to store from settings
+   */
+  private getMaxStoredConversations(): number {
+    try {
+      // Try to get from VS Code settings
+      const vscode = require('vscode');
+      const config = vscode.workspace.getConfiguration('personaut.chat');
+      const limit = config.get('maxStoredConversations') as number | undefined;
+
+      if (typeof limit === 'number' && limit >= 10 && limit <= 10000) {
+        return limit;
+      }
+    } catch (error) {
+      // If vscode is not available (e.g., in tests), use default
+    }
+
+    return DEFAULT_MAX_STORED_CONVERSATIONS;
+  }
+
+  /**
    * Get all conversations from storage
    */
   getConversations(): Conversation[] {
     return this.storage.get<Conversation[]>(STORAGE_KEY, []);
+  }
+
+  /**
+   * Refresh conversations from disk (async)
+   * Forces a reload from disk storage into memory cache
+   */
+  async refreshConversations(): Promise<Conversation[]> {
+    // If storage has a preloadCache method, call it to refresh from disk
+    if (typeof (this.storage as any).preloadCache === 'function') {
+      console.log('[ConversationManager] Refreshing conversations from disk...');
+      await (this.storage as any).preloadCache();
+    }
+    return this.getConversations();
   }
 
   /**
@@ -267,16 +300,22 @@ export class ConversationManager {
     };
 
     if (existingIndex !== -1) {
-      conversations[existingIndex] = conversation;
+      // Remove the old version
+      conversations.splice(existingIndex, 1);
+      // Add updated version to the front (most recent first)
+      conversations.unshift(conversation);
     } else {
+      // New conversation - add to front
       conversations.unshift(conversation);
     }
 
-    // Prune old conversations to prevent globalState bloat
-    // Keep only the most recent MAX_STORED_CONVERSATIONS
-    if (conversations.length > MAX_STORED_CONVERSATIONS) {
-      console.log(`[ConversationManager] Pruning ${conversations.length - MAX_STORED_CONVERSATIONS} old conversations`);
-      conversations = conversations.slice(0, MAX_STORED_CONVERSATIONS);
+    // Prune old conversations to prevent storage bloat
+    // Keep only the most recent conversations based on user settings
+    const maxStoredConversations = this.getMaxStoredConversations();
+    console.log(`[ConversationManager] Current conversations: ${conversations.length}, MAX_STORED_CONVERSATIONS: ${maxStoredConversations}`);
+    if (conversations.length > maxStoredConversations) {
+      console.log(`[ConversationManager] Pruning ${conversations.length - maxStoredConversations} old conversations (keeping ${maxStoredConversations})`);
+      conversations = conversations.slice(0, maxStoredConversations);
     }
 
     // Save with retry logic: 3 attempts with exponential backoff (1s, 2s, 4s)

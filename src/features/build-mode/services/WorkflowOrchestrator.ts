@@ -767,15 +767,12 @@ Output your implementation as code blocks with file paths.`,
         // Create feedback agents for each persona
         ...personas.map((persona) => ({
             id: `feedback-${persona.id}`,
-            role: `${persona.name} (User Feedback)`,
+            role: `${persona.name} (Feedback)`,
             systemPrompt: `You are ${persona.name}. ${persona.backstory}
 
-You are reviewing a new feature implementation. Provide honest feedback from your perspective:
-1. Rate the implementation (1-10)
-2. What works well
-3. What needs improvement
-4. Specific suggestions
-5. Would you use this? Why or why not?`,
+You're reviewing a screenshot of an app or website. Give your honest feedback as yourself, like you're talking to a friend.
+
+Share what you like, what you don't like, and rate it out of 100 for how well it would work for you.`,
         })),
     ];
 
@@ -797,7 +794,7 @@ You are reviewing a new feature implementation. Provide honest feedback from you
         {
             type: 'parallel',
             agents: personas.map((p) => `feedback-${p.id}`),
-            task: `Review the implemented feature and provide your feedback.`,
+            task: `Look at this screenshot and share your thoughts.`,
             dependencies: ['developer-agent'],
         },
     ];

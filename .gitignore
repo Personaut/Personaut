@@ -4,7 +4,7 @@ node_modules/
 # Build outputs
 out/
 dist/
-build/
+/build/
 *.vsix
 
 # VS Code test environment
@@ -56,3 +56,6 @@ notes/
 *.temp
 tmp/
 temp/
+
+# Deprecated code (local archive)
+.deprecated/

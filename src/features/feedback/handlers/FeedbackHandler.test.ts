@@ -27,11 +27,47 @@ class MockStorage implements FeedbackStorage {
 }
 
 /**
+ * Mock ConversationManager for testing
+ */
+class MockConversationManager {
+  private conversations: Map<string, any> = new Map();
+
+  setConversation(id: string, messages: any[]) {
+    this.conversations.set(id, { messages });
+  }
+
+  getConversation = jest.fn().mockImplementation((id: string) => {
+    return Promise.resolve(this.conversations.get(id) || { messages: [] });
+  });
+}
+
+/**
+ * Mock Agent for testing
+ */
+class MockAgent {
+  chat = jest.fn().mockImplementation(() => Promise.resolve());
+}
+
+/**
  * Mock AgentManager for testing
  */
 class MockAgentManager {
-  getOrCreateAgent = jest.fn();
-  disposeAgent = jest.fn();
+  public conversationManager = new MockConversationManager();
+  private mockAgent = new MockAgent();
+
+  config = {
+    conversationManager: this.conversationManager,
+  };
+
+  getOrCreateAgent = jest.fn().mockImplementation((conversationId: string) => {
+    // Set up mock response in conversation manager
+    this.conversationManager.setConversation(conversationId, [
+      { role: 'model', text: 'Generated feedback content' },
+    ]);
+    return Promise.resolve(this.mockAgent);
+  });
+
+  disposeAgent = jest.fn().mockResolvedValue(undefined);
 }
 
 /**

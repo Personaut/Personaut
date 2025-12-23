@@ -66,16 +66,25 @@ describe('Property 7: Boolean Variable Naming', () => {
     const commonBooleanPatterns = [
       /^(enabled|disabled|visible|hidden|loading|loaded|active|inactive)$/i,
       /^(valid|invalid|required|optional|readonly|editable)$/i,
-      /^(completed|pending|processing|failed|success)$/i,
+      /^(completed|pending|processing|failed|success|initialized)$/i,
       /^(singleton|transient|cached|memoized)$/i,
       /^(executable|readable|writable|accessible)$/i,
-      /^(modified|changed|updated|deleted|created)$/i,
+      /^(modified|changed|updated|deleted|created|exited)$/i,
       /^(allowed|blocked|permitted|denied)$/i,
       /^(confirmed|cancelled|approved|rejected)$/i,
+      // Suffix patterns
+      /.*Exited$/i, // processExited, serverExited, etc.
+      /.*Ready$/i, // serverReady, appReady, etc.
+      // DOM event and form properties
+      /^(checked|selected|focused|pressed|expanded|collapsed)$/i,
+      /^(open|closed|empty|full|busy|idle)$/i,
+      // Common state patterns
+      /^(incognito|incognitoMode)$/i,
       /.*Confirmation$/i, // skipConfirmation, needsConfirmation, etc.
       /.*Time$/i, // includeTime, showTime, etc.
       /.*Info$/i, // containedSensitiveInfo, hasInfo, etc.
       /.*Modified$/i, // settingsModified, dataModified, etc.
+      /.*Mode$/i, // incognitoMode, darkMode, etc.
       /^in[A-Z]/, // inAllowlist, inProgress, etc.
     ];
 

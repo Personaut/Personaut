@@ -14,7 +14,6 @@ import {
   TokenStorageService,
   InputValidator,
   ErrorSanitizer,
-  PersonaStorage,
   TokenMonitor,
 } from './shared/services';
 
@@ -42,11 +41,23 @@ import {
   ConversationStorage,
 } from './features/chat';
 
+// Chat file storage
+import {
+  ConversationFileStorage,
+} from './features/chat/services';
+
+// File storage service
+import { FileStorageService } from './shared/services/FileStorageService';
+import { MigrationService } from './shared/services/MigrationService';
+
 // Personas services
 import { PersonasService, PersonasHandler } from './features/personas';
+import { PersonaFileStorage } from './features/personas/services/PersonaFileStorage';
+import { PersonaMigrationService } from './features/personas/services/PersonaMigrationService';
 
 // Feedback services
 import { FeedbackService, FeedbackHandler, FeedbackStorage } from './features/feedback';
+import { FeedbackFileStorage } from './features/feedback/services/FeedbackFileStorage';
 
 // Settings services
 import { SettingsService, SettingsHandler } from './features/settings';
@@ -97,10 +108,108 @@ async function createAIProvider(
 }
 
 /**
+ * Clear all legacy globalState keys to free up storage
+ * This should be called after successful migration to file storage
+ */
+async function clearLegacyGlobalState(context: vscode.ExtensionContext): Promise<void> {
+  const keysToClean = [
+    // Conversation storage
+    'conversations',
+    'personaut.conversations',
+    'conversationHistory', // The main key used by ConversationManager
+    'feedbackHistory',
+
+    // Persona storage
+    'personaut.customerProfiles',
+    'personaut.favoritePersonas',
+    'personaut.personas',
+    'personaut.favorites',
+
+    // Settings (keep for now as it's small)
+    // 'personaut.settings',
+
+    // Token usage (keep for now as it's small and needed for tracking)
+    // 'personaut.tokenUsage',
+
+    // Migration flags (keep these)
+    // 'personaut.migrated',
+    // 'personaut.migratedV2',
+    // 'personaut.chat.migration',
+  ];
+
+  for (const key of keysToClean) {
+    await context.globalState.update(key, undefined);
+  }
+
+  console.log(`[Personaut] Cleared ${keysToClean.length} legacy globalState keys`);
+}
+
+/**
  * Activate the extension
  */
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   console.log('[Personaut] Extension activating...');
+
+  // Initialize file-based storage FIRST and await it
+  const fileStorage = new FileStorageService(context.globalStorageUri.fsPath);
+  const conversationFileStorage = new ConversationFileStorage(fileStorage);
+
+  try {
+    await conversationFileStorage.initialize();
+    console.log('[Personaut] File storage initialized successfully');
+
+    // Run migration from globalState if needed
+    const migrationService = new MigrationService(context.globalState, conversationFileStorage);
+    const migrationResult = await migrationService.runMigrationIfNeeded();
+    if (migrationResult) {
+      console.log(`[Personaut] Migration complete: ${migrationResult.conversationsMigrated} conversations migrated`);
+    }
+
+    // Preload conversations into memory cache for sync get() operations
+    await conversationFileStorage.preloadCache();
+  } catch (err) {
+    console.error('[Personaut] Failed to initialize file storage:', err);
+  }
+
+  // Initialize persona file-based storage
+  const personaFileStorage = new PersonaFileStorage(fileStorage);
+  try {
+    await personaFileStorage.initialize();
+    console.log('[Personaut] Persona file storage initialized successfully');
+
+    // Run persona migration from globalState if needed
+    const personaMigrationService = new PersonaMigrationService(context.globalState, personaFileStorage);
+    const personaMigrationResult = await personaMigrationService.runMigrationIfNeeded();
+    if (personaMigrationResult) {
+      console.log(`[Personaut] Persona migration complete: ${personaMigrationResult.personasMigrated} personas migrated`);
+    }
+
+    // Preload personas into memory cache
+    await personaFileStorage.preloadCache();
+  } catch (err) {
+    console.error('[Personaut] Failed to initialize persona file storage:', err);
+  }
+
+  // Initialize feedback file-based storage
+  const feedbackFileStorage = new FeedbackFileStorage(fileStorage);
+  try {
+    await feedbackFileStorage.initialize();
+    console.log('[Personaut] Feedback file storage initialized successfully');
+
+    // Preload feedback into memory cache
+    await feedbackFileStorage.preloadCache();
+  } catch (err) {
+    console.error('[Personaut] Failed to initialize feedback file storage:', err);
+  }
+
+  // Always clear legacy globalState data to free up space
+  // This runs after all file-based storage is initialized
+  try {
+    await clearLegacyGlobalState(context);
+    console.log('[Personaut] Legacy globalState cleaned up automatically');
+  } catch (err) {
+    console.error('[Personaut] Failed to cleanup legacy globalState:', err);
+  }
 
   const container = new Container();
 
@@ -116,43 +225,35 @@ export function activate(context: vscode.ExtensionContext) {
 
   container.register('errorSanitizer', () => new ErrorSanitizer());
 
-  container.register('personaStorage', () => new PersonaStorage(context));
+  container.register('personaStorage', () => personaFileStorage);
 
   // Register TokenMonitor for LLM token usage tracking
-  // This will be lazy-initialized when SettingsService is available
+  // IMPORTANT: Initialize WITHOUT SettingsService to break circular dependency
+  // TokenMonitor → SettingsService → AgentManager → TokenMonitor
+  // SettingsService will be injected lazily after all services are initialized
   let tokenMonitorInstance: TokenMonitor | null = null;
   container.register('tokenMonitor', () => {
     if (!tokenMonitorInstance) {
       const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
-      const settingsService = container.resolve<SettingsService>('settingsService');
-      tokenMonitorInstance = new TokenMonitor(tokenStorageService, settingsService);
+      // Pass null for settingsService to break circular dependency
+      // setSettingsService() will be called after all services are initialized
+      tokenMonitorInstance = new TokenMonitor(tokenStorageService, null);
       // Initialize asynchronously
       tokenMonitorInstance.initialize().catch(err => {
         console.error('[Personaut] Failed to initialize TokenMonitor:', err);
       });
-      console.log('[Personaut] TokenMonitor initialized');
+      console.log('[Personaut] TokenMonitor initialized (without SettingsService - will be injected lazily)');
     }
     return tokenMonitorInstance;
   });
 
-  // Register storage implementations
-  container.register<ConversationStorage>('conversationStorage', () => ({
-    get: <T>(key: string, defaultValue: T): T => {
-      return context.globalState.get(key, defaultValue);
-    },
-    update: async (key: string, value: unknown): Promise<void> => {
-      await context.globalState.update(key, value);
-    },
-  }));
+  // Register the pre-initialized file storage for conversations (replaces globalState)
+  // This was initialized at the top of activate() and is ready to use
+  container.register<ConversationStorage>('conversationStorage', () => conversationFileStorage);
 
-  container.register<FeedbackStorage>('feedbackStorage', () => ({
-    get: <T>(key: string, defaultValue: T): T => {
-      return context.globalState.get(key, defaultValue);
-    },
-    update: async (key: string, value: unknown): Promise<void> => {
-      await context.globalState.update(key, value);
-    },
-  }));
+  // Register the pre-initialized file storage for feedback (replaces globalState)
+  // This was initialized at the top of activate() and is ready to use
+  container.register<FeedbackStorage>('feedbackStorage', () => feedbackFileStorage);
 
   // Register AI provider (lazy initialization)
   let aiProviderInstance: IProvider | null = null;
@@ -263,7 +364,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   container.register('personasService', () => {
-    const personaStorage = container.resolve<PersonaStorage>('personaStorage');
+    const personaStorage = container.resolve<PersonaFileStorage>('personaStorage');
     const agentManager = container.resolve<AgentManager>('agentManager');
     return new PersonasService(personaStorage, agentManager);
   });
@@ -288,11 +389,29 @@ export function activate(context: vscode.ExtensionContext) {
     return new SettingsService(tokenStorageService, agentManager);
   });
 
+  // CRITICAL: Inject SettingsService into TokenMonitor AFTER all services are registered
+  // This breaks the circular dependency: TokenMonitor → SettingsService → AgentManager → TokenMonitor
+  try {
+    const tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+    const settingsService = container.resolve<SettingsService>('settingsService');
+    tokenMonitor.setSettingsService(settingsService);
+    console.log('[Personaut] SettingsService injected into TokenMonitor (lazy dependency completed)');
+  } catch (error) {
+    console.error('[Personaut] Failed to inject SettingsService into TokenMonitor:', error);
+    // Continue - TokenMonitor will use default values
+  }
+
   // Register feature handlers (lazy initialization to allow AgentManager to be created first)
   container.register('chatHandler', () => {
     const chatService = container.resolve<ChatService>('chatService');
     const inputValidator = container.resolve<InputValidator>('inputValidator');
-    return new ChatHandler(chatService, inputValidator);
+    let tokenMonitor: TokenMonitor | undefined;
+    try {
+      tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+    } catch {
+      // TokenMonitor not available
+    }
+    return new ChatHandler(chatService, inputValidator, tokenMonitor);
   });
 
   container.register('personasHandler', () => {
@@ -335,17 +454,20 @@ export function activate(context: vscode.ExtensionContext) {
     context.extensionUri,
     // Pass a callback to initialize AgentManager when webview is created
     (webview: vscode.Webview) => {
+      // Set tokenMonitor webview reference for token usage updates
+      let tokenMonitor: TokenMonitor | undefined;
+      try {
+        tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
+        tokenMonitor.setWebview(webview);
+        console.log('[Extension] TokenMonitor webview reference set');
+      } catch {
+        console.warn('[Extension] TokenMonitor not available, token tracking disabled');
+      }
+
       if (!agentManagerInstance) {
         console.log('[Extension] Initializing AgentManager with webview');
         const tokenStorageService = container.resolve<TokenStorageService>('tokenStorageService');
         const conversationManager = container.resolve<ConversationManager>('conversationManager');
-        // Resolve tokenMonitor for token usage tracking
-        let tokenMonitor: TokenMonitor | undefined;
-        try {
-          tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
-        } catch {
-          console.warn('[Extension] TokenMonitor not available, token tracking disabled');
-        }
 
         agentManagerInstance = new AgentManager({
           webview,
@@ -375,6 +497,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Store container in context for access by other parts of the extension
   context.subscriptions.push({
     dispose: () => {
+      // File storage doesn't need explicit closing (uses fs operations)
       container.clear();
     },
   });
@@ -382,9 +505,31 @@ export function activate(context: vscode.ExtensionContext) {
   // Register commands
   context.subscriptions.push(
     vscode.commands.registerCommand('personaut.clearCache', async () => {
-      await context.globalState.update('conversations', undefined);
-      await context.globalState.update('feedbackHistory', undefined);
-      vscode.window.showInformationMessage('Personaut cache cleared');
+      // Clear file-based storage
+      if (conversationFileStorage) {
+        await conversationFileStorage.clearAllConversations();
+      }
+      if (personaFileStorage) {
+        // Note: PersonaFileStorage doesn't have clearAll yet, clear via iteration
+        const personas = await personaFileStorage.getAllPersonas();
+        for (const p of personas) {
+          await personaFileStorage.deletePersona(p.id);
+        }
+      }
+
+      // Clear all legacy globalState data
+      await clearLegacyGlobalState(context);
+
+      vscode.window.showInformationMessage('Personaut cache cleared - all data has been reset');
+    })
+  );
+
+  // Command to cleanup legacy globalState without affecting file storage (for existing users)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('personaut.cleanupLegacyStorage', async () => {
+      console.log('[Personaut] Cleaning up legacy globalState storage...');
+      await clearLegacyGlobalState(context);
+      vscode.window.showInformationMessage('Legacy storage cleaned up. Your data is now stored in files for better performance.');
     })
   );
 
@@ -393,12 +538,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('personaut.resetTokenUsage', async () => {
       try {
         const tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
-        // Use 'global' as a default conversation ID for command-based reset
-        // Users can also reset via the webview for conversation-specific resets
-        const conversationId = 'global';
-
-        await tokenMonitor.resetUsage(conversationId);
-        vscode.window.showInformationMessage('Token usage has been reset.');
+        // Reset all conversation token usage
+        await tokenMonitor.resetAllUsage();
+        vscode.window.showInformationMessage('Token usage has been reset for all conversations.');
       } catch (error: any) {
         vscode.window.showErrorMessage(`Failed to reset token usage: ${error.message}`);
       }
@@ -409,10 +551,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('personaut.viewTokenUsage', async () => {
       try {
         const tokenMonitor = container.resolve<TokenMonitor>('tokenMonitor');
-        const conversationId = 'global';
-
-        const usage = tokenMonitor.getUsage(conversationId);
-        const limit = await tokenMonitor.getEffectiveLimit(conversationId);
+        // Get aggregated usage across all conversations
+        const usage = tokenMonitor.getGlobalUsage();
+        const limit = await tokenMonitor.getEffectiveLimit('global');
         const percentUsed = limit > 0 ? Math.round((usage.totalTokens / limit) * 100) : 0;
 
         vscode.window.showInformationMessage(
@@ -456,6 +597,10 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // NOTE: SessionLifecycleManager has been deprecated along with SQLite storage.
+  // File-based storage handles session differently - conversations are persisted
+  // immediately and don't require explicit session management.
+
   console.log('[Personaut] Extension activated successfully');
   console.log('[Personaut] Registered services:', container.getRegisteredKeys());
 }
@@ -465,4 +610,5 @@ export function activate(context: vscode.ExtensionContext) {
  */
 export function deactivate() {
   console.log('[Personaut] Extension deactivating...');
+  // Session lifecycle cleanup is handled by the disposable registered in activate()
 }

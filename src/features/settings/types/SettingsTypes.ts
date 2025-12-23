@@ -28,6 +28,9 @@ export interface Settings {
   bedrockCrossRegionInference?: boolean;
   rateLimit?: number;
   rateLimitWarningThreshold?: number;
+  // Chat settings
+  userMessageColor?: string;
+  agentMessageColor?: string;
 }
 
 /**

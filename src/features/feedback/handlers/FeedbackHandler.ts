@@ -54,6 +54,9 @@ export class FeedbackHandler implements IFeatureHandler {
         case 'check-provider-image-support':
           await this.checkProviderImageSupport(message.provider, webview);
           break;
+        case 'capture-url-screenshot':
+          await this.captureUrlScreenshot(message.url, webview);
+          break;
         default:
           throw new Error(`Unknown message type: ${message.type}`);
       }
@@ -84,9 +87,12 @@ export class FeedbackHandler implements IFeatureHandler {
       throw new Error(contextValidation.reason || 'Invalid context');
     }
 
-    const urlValidation = this.inputValidator.validateInput(data.url);
-    if (!urlValidation.valid) {
-      throw new Error(urlValidation.reason || 'Invalid URL');
+    // Only validate URL if it's provided and not a data URL (data URLs can be very large)
+    if (data.url && !data.url.startsWith('data:')) {
+      const urlValidation = this.inputValidator.validateInput(data.url);
+      if (!urlValidation.valid) {
+        throw new Error(urlValidation.reason || 'Invalid URL');
+      }
     }
 
     // Validate each persona name
@@ -97,13 +103,39 @@ export class FeedbackHandler implements IFeatureHandler {
       }
     }
 
-    const result = await this.feedbackService.generateFeedback(data);
+    // Debug: Log screenshot info
+    console.log('[FeedbackHandler] Screenshot info:', {
+      hasScreenshot: !!data.screenshot,
+      screenshotLength: data.screenshot?.length || 0,
+      screenshotPrefix: data.screenshot?.substring(0, 50) || 'none',
+    });
+
+    const result = await this.feedbackService.generateFeedbackWithAI(data);
 
     if (result.success) {
-      webview.postMessage({
-        type: 'feedback-generated',
-        entry: result.entry,
-      });
+      // Send each entry separately to the frontend
+      if (result.entries && result.entries.length > 0) {
+        for (const entry of result.entries) {
+          webview.postMessage({
+            type: 'feedback-generated',
+            entry: entry,
+          });
+        }
+
+        // Send summary if available
+        if (result.summary) {
+          webview.postMessage({
+            type: 'feedback-summary',
+            summary: result.summary.summary, // The actual summary text
+          });
+        }
+      } else if (result.entry) {
+        // Backward compatibility: single entry
+        webview.postMessage({
+          type: 'feedback-generated',
+          entry: result.entry,
+        });
+      }
     } else {
       throw new Error(result.error || 'Failed to generate feedback');
     }
@@ -227,5 +259,73 @@ export class FeedbackHandler implements IFeatureHandler {
       supportsImages,
       config,
     });
+  }
+
+  /**
+   * Capture screenshot of a URL using Puppeteer
+   * Simple flow: spin up browser → screenshot → spin down
+   */
+  private async captureUrlScreenshot(url: string, webview: vscode.Webview): Promise<void> {
+    const validation = this.inputValidator.validateInput(url);
+    if (!validation.valid) {
+      throw new Error(validation.reason || 'Invalid URL');
+    }
+
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch {
+      throw new Error('Invalid URL format. Please enter a valid URL starting with http:// or https://');
+    }
+
+    console.log('[FeedbackHandler] Capturing screenshot of:', url);
+
+    let browser: any = null;
+    try {
+      webview.postMessage({
+        type: 'screenshot-status',
+        status: 'capturing',
+        message: 'Capturing screenshot...',
+      });
+
+      // Spin up Puppeteer
+      const puppeteer = require('puppeteer');
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
+
+      // Navigate and screenshot
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1280, height: 800 });
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+      const screenshotBuffer = await page.screenshot({ type: 'png', fullPage: false });
+      const base64Data = screenshotBuffer.toString('base64');
+      const dataUrl = `data:image/png;base64,${base64Data}`;
+
+      console.log('[FeedbackHandler] Screenshot captured successfully');
+
+      webview.postMessage({
+        type: 'screenshot-captured',
+        url,
+        screenshot: dataUrl,
+      });
+    } catch (error: any) {
+      console.error('[FeedbackHandler] Screenshot capture error:', error);
+      webview.postMessage({
+        type: 'screenshot-error',
+        error: error.message || 'Failed to capture screenshot',
+        url,
+      });
+    } finally {
+      // Spin down - always close browser
+      if (browser) {
+        try {
+          await browser.close();
+          console.log('[FeedbackHandler] Browser closed');
+        } catch { /* ignore */ }
+      }
+    }
   }
 }

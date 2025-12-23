@@ -22,6 +22,7 @@ describe('PersonasHandler', () => {
     },
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    versionNumber: 1,
   };
 
   beforeEach(() => {
@@ -91,7 +92,7 @@ describe('PersonasHandler', () => {
     });
 
     it('should handle persona not found', async () => {
-      mockPersonasService.getPersonaById.mockResolvedValue(undefined);
+      mockPersonasService.getPersonaById.mockResolvedValue(null);
 
       await personasHandler.handle({ type: 'get-persona', id: '999' }, mockWebview);
 
@@ -220,7 +221,7 @@ describe('PersonasHandler', () => {
     });
 
     it('should handle persona not found', async () => {
-      mockPersonasService.updatePersona.mockResolvedValue(undefined);
+      mockPersonasService.updatePersona.mockResolvedValue(null);
 
       await personasHandler.handle({ type: 'update-persona', id: '999', updates: {} }, mockWebview);
 
@@ -311,6 +312,7 @@ describe('PersonasHandler', () => {
         attributes: { age: '30' },
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        versionNumber: 1,
         backstory,
       };
 
@@ -353,6 +355,7 @@ describe('PersonasHandler', () => {
         attributes: { age: '30' },
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        versionNumber: 1,
         backstory,
       };
 

@@ -1,31 +1,100 @@
 # Personaut Extension
 
-> **🚀 Public Preview** | **v0.1.0**
+> **🚀 Public Preview** | **v0.1.4**
 >
-> Personaut is now in **Public Preview**! We're excited to have you try out our empathetic development assistant. Please note that features and APIs may change as we continue to improve the extension based on your feedback.
+> Personaut is your empathetic AI development assistant that helps you build applications from idea to implementation. Chat with AI, gather user feedback, and generate full-stack applications - all within VS Code!
 
-This directory contains the Personaut extension with a feature-based architecture and centralized agent management.
+An AI-powered VS Code extension with feature-based architecture and centralized agent management.
+
+## ✨ Features
+
+### 💬 Chat
+Conversational AI assistant powered by Google Gemini or AWS Bedrock. Get help with coding, debugging, architecture decisions, and more. Chat with any of your created personas to get feedback from their perspective. All conversations are saved for future reference.
+
+### 📊 Feedback
+Gather authentic user feedback through AI-powered persona interviews. Generate realistic user personas, conduct automated interviews, and synthesize insights to inform your product decisions.
+
+### 🏗️ Build Mode ⚠️ **Experimental**
+Transform your ideas into working applications through a guided multi-stage workflow:
+- **Idea** → Define your application concept
+- **Users** → Identify target personas and demographics  
+- **Features** → Generate user stories and feature sets
+- **Design** → Create UX flows and screen designs
+- **Build** → Generate production-ready code with AI agents
+
+> **⚠️ Important:** Build Mode is experimental and currently **only works for new projects**. It will scaffold a fresh React/Next.js/Vue/Flutter application in an empty directory. Adding to existing projects is not yet supported.
+>
+> **Supported Frameworks:**
+> - React (Create React App)
+> - Next.js
+> - Vue.js
+> - Flutter (experimental)
+>
+> **Known Issues:** See the [Known Issues](#️-known-issues) section below for current limitations.
 
 ## 🎯 Quick Start
 
 ### Installation
 
-1.  Download the `personaut-extension-0.1.2.vsix` file.
-2.  Open VS Code.
-3.  Install the extension: Press `Cmd+Shift+P` (or `Ctrl+Shift+P`) and run `Extensions: Install from VSIX...`
-4.  Select the VSIX file.
-5.  Open the Personaut sidebar to start planning your next project!
+1. Download the `personaut-extension-0.1.4.vsix` file.
+2. Open VS Code.
+3. Install the extension: Press `Cmd+Shift+P` (or `Ctrl+Shift+P`) and run `Extensions: Install from VSIX...`
+4. Select the VSIX file.
+5. Open the Personaut sidebar to start!
+
+> **⚠️ Upgrading from v0.1.2 or earlier?**  
+> Chat storage has been migrated to a new format. If you experience issues, run `Personaut: Refresh Extension` from the Command Palette (`Cmd+Shift+P`) to clear old data.
 
 **See:** [Setup Guide](docs/getting-started/setup.mdx) for detailed instructions.
 
+### ⚙️ Configuration Required
+
+Before using Personaut, you must configure an AI provider:
+
+1. Open VS Code Settings (`Cmd+,` or `Ctrl+,`)
+2. Search for "Personaut"
+3. Choose your provider:
+   - **Google Gemini**: Enter your Gemini API key
+   - **AWS Bedrock**: Enter AWS credentials (access key, secret key, region)
+4. Save and reload VS Code
+
+> **💡 Tip:** Get a free Gemini API key at [ai.google.dev](https://ai.google.dev)
+
+### System Requirements
+
+- **VS Code**: Version 1.90.0 or higher
+- **Node.js**: Required for Build Mode (v18+ recommended)
+- **npm**: Required for Build Mode project scaffolding
+- **Internet connection**: Required for AI provider API calls
+
+### 💬 Chatting with Personas
+
+After creating personas in the Feedback section:
+1. Open the Chat tab
+2. Click the persona selector dropdown
+3. Choose a persona to chat with
+4. Get feedback from their unique perspective!
+
+> **💡 Tip:** Personas remember their backstory and will respond in character based on their demographics and preferences.
+
+### 📁 Data Storage
+
+All your data is stored locally:
+- **Conversations**: `~/.gemini/antigravity/conversations/`
+- **Build Projects**: `.personaut/` folder in your workspace
+- **API Keys**: VS Code Secure Storage (encrypted)
+- **Settings**: VS Code Settings (JSON)
+
+> **🔒 Privacy:** Your data never leaves your machine except for AI API calls to your configured provider.
+
 ## 📊 Current Status
 
-- ✅ **Backend:** Complete and secure (all tests passing)
-- ✅ **Agent Management:** Centralized lifecycle management with AgentManager
-- ✅ **Build Mode:** Core Planning Phase (Idea → Design) fully implemented with multi-agent workflows
-- ✅ **Frontend:** Functional React UI with Tailwind CSS
-- ✅ **Data Persistence:** Robust saving/loading of all stage data
-- ⚠️ **Research/Building:** Advanced workflows (VoltAgent, Dev Server) are in development
+- ✅ **Chat:** Full conversational AI with history and context management
+- ✅ **Feedback:** AI-powered persona interviews and insight synthesis
+- ✅ **Build Mode:** Complete Planning Phase (Idea → Design) with multi-agent workflows
+- ✅ **Code Generation:** Automated screen generation with React/Next.js/Vue/Flutter support
+- ✅ **Data Persistence:** Robust file-based storage for all features
+- ⚠️ **Screenshots:** Dev server optimization in progress (see Known Issues)
 
 **See:** [Roadmap](docs/roadmap.mdx) for status.
 
@@ -48,6 +117,24 @@ All critical bugs have been resolved:
 
 **See:** [Roadmap](docs/roadmap.mdx) for issue tracking.
 
+## ⚠️ Known Issues
+
+### Build Mode - Experimental (v0.1.4)
+
+#### New Projects Only
+- **Issue:** Build Mode currently only supports creating new projects from scratch.
+- **Impact:** Cannot add Build Mode-generated code to existing projects.
+- **Workaround:** Use Build Mode to create a new project in an empty directory, then manually integrate the generated code into your existing project if needed.
+- **Status:** Existing project support planned for future release.
+
+#### Screenshot Caching
+- **Issue:** During the build process, the dev server runs continuously for all screens, which can result in cached or stale screenshots. Additionally, screenshots may be captured even when webpack compilation fails.
+- **Impact:** Generated screenshots may not accurately reflect the latest code changes.
+- **Workaround:** Delete the generated project and start a fresh build if screenshots appear incorrect.
+- **Fix:** Scheduled for **v0.1.5** (December 24, 2025) - The dev server will be restarted per screen for fresh screenshots.
+
+**See:** [GitHub Issue](.github/ISSUE_DEV_SERVER_REFACTOR.md) for technical details.
+
 ## 📁 Directory Structure
 
 ```
@@ -55,7 +142,7 @@ personaut/
 ├── src/
 │   ├── core/              # Core services
 │   │   ├── agent/         # Agent and AgentManager (lifecycle management)
-│   │   ├── providers/     # AI provider implementations (Gemini, Bedrock, Native)
+│   │   ├── providers/     # AI provider implementations (Gemini, Bedrock)
 │   │   ├── tools/         # Tool implementations (File, Terminal, Browser, MCP)
 │   │   ├── integrations/  # External integrations (MCP, Terminal)
 │   │   └── prompts/       # System prompts for different modes

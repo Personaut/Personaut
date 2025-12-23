@@ -25,7 +25,32 @@ import {
 } from '../types/BuildModeTypes';
 import { Persona } from '../../personas/types/PersonasTypes';
 
+export interface ScreenBuildStatus {
+  screenName: string;
+  status: 'pending' | 'in-progress' | 'complete' | 'failed';
+  startTime?: number;
+  endTime?: number;
+  error?: string;
+}
+
+export interface ActiveBuildState {
+  projectName: string;
+  status: 'in-progress' | 'complete' | 'failed';
+  currentStep: number;
+  totalSteps: number;
+  currentAgent: string;
+  logs: BuildLogEntry[];
+  startTime: number;
+  // Screen-level tracking
+  screens: ScreenBuildStatus[];
+  currentScreen?: string;
+  completedScreens: string[];
+  isCancelled?: boolean; // Persist cancellation state
+}
+
 export class BuildModeService {
+  private activeBuild: ActiveBuildState | null = null;
+
   constructor(
     private readonly stageManager: StageManager,
     private readonly buildLogManager: BuildLogManager,
@@ -75,6 +100,145 @@ export class BuildModeService {
   ): Promise<StageTransition> {
     const completedStages = await this.stageManager.getCompletedStages(projectName);
     return this.stageManager.validateTransition(from, to, completedStages);
+  }
+
+  /**
+   * Get the current active build state (for webview restoration)
+   * Now reads from building.json instead of in-memory state
+   */
+  async getActiveBuildState(projectName?: string): Promise<ActiveBuildState | null> {
+    // If no projectName provided, fall back to in-memory state
+    if (!projectName) {
+      return this.activeBuild;
+    }
+
+    // Read from building.json for the specified project
+    try {
+      const buildingStage = await this.stageManager.readStageFile(projectName, 'building');
+
+      if (buildingStage?.data && buildingStage.data.status === 'in-progress') {
+        // Convert building.json data to ActiveBuildState format
+        return {
+          projectName,
+          status: buildingStage.data.status,
+          currentStep: buildingStage.data.currentStep || 0,
+          totalSteps: buildingStage.data.totalSteps || 0,
+          currentAgent: buildingStage.data.currentAgent || 'unknown',
+          logs: [], // Logs are stored separately in build-logs.json
+          startTime: buildingStage.data.startTime || Date.now(),
+          screens: (buildingStage.data.screens || []).map((s: any) => ({
+            screenName: s.name || s.id,
+            status: buildingStage.data.completedScreens?.includes(s.name || s.id) ? 'complete' : 'pending',
+          })),
+          currentScreen: buildingStage.data.currentScreen,
+          completedScreens: buildingStage.data.completedScreens || [],
+          isCancelled: buildingStage.data.isCancelled || false,
+        };
+      }
+    } catch (error) {
+      console.error('[BuildModeService] Error reading active build state:', error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Set active build state
+   */
+  setActiveBuildState(state: ActiveBuildState | null): void {
+    this.activeBuild = state;
+  }
+
+  /**
+   * Update active build progress
+   */
+  updateActiveBuildProgress(step: number, totalSteps: number, agent: string): void {
+    if (this.activeBuild) {
+      this.activeBuild.currentStep = step;
+      this.activeBuild.totalSteps = totalSteps;
+      this.activeBuild.currentAgent = agent;
+    }
+  }
+
+  /**
+   * Add log entry to active build
+   */
+  addActiveBuildLog(entry: BuildLogEntry): void {
+    if (this.activeBuild) {
+      this.activeBuild.logs.push(entry);
+      // Keep only last 100 logs to avoid memory issues
+      if (this.activeBuild.logs.length > 100) {
+        this.activeBuild.logs = this.activeBuild.logs.slice(-100);
+      }
+    }
+  }
+
+  /**
+   * Complete active build
+   */
+  completeActiveBuild(status: 'complete' | 'failed'): void {
+    if (this.activeBuild) {
+      this.activeBuild.status = status;
+    }
+  }
+
+  /**
+   * Update screen status
+   */
+  updateScreenStatus(screenName: string, status: ScreenBuildStatus['status'], error?: string): void {
+    if (this.activeBuild) {
+      const screen = this.activeBuild.screens.find(s => s.screenName === screenName);
+      if (screen) {
+        screen.status = status;
+        if (status === 'in-progress') {
+          screen.startTime = Date.now();
+          this.activeBuild.currentScreen = screenName;
+        } else if (status === 'complete') {
+          screen.endTime = Date.now();
+          if (!this.activeBuild.completedScreens.includes(screenName)) {
+            this.activeBuild.completedScreens.push(screenName);
+          }
+        } else if (status === 'failed' && error) {
+          screen.error = error;
+          screen.endTime = Date.now();
+        }
+
+        // Persist to disk
+        this.stageManager.updateBuildingScreenStatus(
+          this.activeBuild.projectName,
+          screenName, // Use screenName as ID
+          status,
+          screen.startTime,
+          screen.endTime,
+          error
+        ).catch(err => {
+          console.error('[BuildModeService] Failed to persist screen status:', err);
+        });
+      }
+    }
+  }
+
+  /**
+   * Clear active build state
+   */
+  clearActiveBuildState(): void {
+    this.activeBuild = null;
+  }
+
+  /**
+   * Check if build is cancelled
+   */
+  isBuildCancelled(): boolean {
+    return this.activeBuild?.isCancelled === true;
+  }
+
+  /**
+   * Cancel active build
+   */
+  cancelActiveBuild(): void {
+    if (this.activeBuild) {
+      this.activeBuild.isCancelled = true;
+    }
   }
 
   async getCompletedStages(projectName: string): Promise<string[]> {
@@ -409,7 +573,7 @@ Output JSON format:
             features: [],
             rawInterviews: surveyResponses,
             surveyComplete: false,
-            error: parseResult.error
+            error: parseResult.error,
           };
         }
       }

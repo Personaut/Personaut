@@ -583,4 +583,224 @@ describe('TokenMonitor Properties', () => {
             );
         });
     });
+
+    /**
+     * Property 20: Global usage aggregation
+     * For multiple conversations with usage, getGlobalUsage should return the sum
+     * of all individual conversation usages.
+     * Validates: Requirements 1.1, 1.2
+     */
+    describe('Property 20: Global usage aggregation', () => {
+        it('should aggregate usage across all conversations', async () => {
+            await fc.assert(
+                fc.asyncProperty(
+                    fc.array(
+                        fc.tuple(conversationIdArb, usageDataArb),
+                        { minLength: 1, maxLength: 5 }
+                    ),
+                    async (conversationUsages) => {
+                        const { tokenStorageService, mockSettingsService } = createMockDependencies();
+                        const monitor = new TokenMonitor(tokenStorageService, mockSettingsService);
+
+                        // Ensure unique conversation IDs
+                        const uniqueUsages = new Map<string, UsageData>();
+                        for (const [id, usage] of conversationUsages) {
+                            uniqueUsages.set(id, usage);
+                        }
+
+                        // Record usage for each conversation
+                        for (const [conversationId, usageData] of uniqueUsages) {
+                            await monitor.recordUsage(conversationId, usageData);
+                        }
+
+                        // Get global usage
+                        const globalUsage = monitor.getGlobalUsage();
+
+                        // Calculate expected totals
+                        let expectedTotal = 0;
+                        let expectedInput = 0;
+                        let expectedOutput = 0;
+                        for (const usage of uniqueUsages.values()) {
+                            expectedTotal += Math.max(0, usage.totalTokens || 0);
+                            expectedInput += Math.max(0, usage.inputTokens || 0);
+                            expectedOutput += Math.max(0, usage.outputTokens || 0);
+                        }
+
+                        expect(globalUsage.conversationId).toBe('global');
+                        expect(globalUsage.totalTokens).toBe(expectedTotal);
+                        expect(globalUsage.inputTokens).toBe(expectedInput);
+                        expect(globalUsage.outputTokens).toBe(expectedOutput);
+                    }
+                ),
+                { numRuns: 100 }
+            );
+        });
+
+        it('should return zero for empty monitor', async () => {
+            const { tokenStorageService, mockSettingsService } = createMockDependencies();
+            const monitor = new TokenMonitor(tokenStorageService, mockSettingsService);
+
+            const globalUsage = monitor.getGlobalUsage();
+
+            expect(globalUsage.conversationId).toBe('global');
+            expect(globalUsage.totalTokens).toBe(0);
+            expect(globalUsage.inputTokens).toBe(0);
+            expect(globalUsage.outputTokens).toBe(0);
+        });
+    });
+
+    /**
+     * Property 21: Reset all usage
+     * After calling resetAllUsage, all conversations should have zero usage
+     * and getGlobalUsage should return zero.
+     * Validates: Requirements 4.2
+     */
+    describe('Property 21: Reset all usage', () => {
+        it('should reset all conversations to zero', async () => {
+            await fc.assert(
+                fc.asyncProperty(
+                    fc.array(
+                        fc.tuple(conversationIdArb, usageDataArb),
+                        { minLength: 1, maxLength: 5 }
+                    ),
+                    async (conversationUsages) => {
+                        const { tokenStorageService, mockSettingsService } = createMockDependencies();
+                        const monitor = new TokenMonitor(tokenStorageService, mockSettingsService);
+
+                        // Ensure unique conversation IDs
+                        const uniqueIds = new Set<string>();
+                        for (const [id, usage] of conversationUsages) {
+                            const uniqueId = uniqueIds.has(id) ? `${id}_${uniqueIds.size}` : id;
+                            uniqueIds.add(uniqueId);
+                            await monitor.recordUsage(uniqueId, usage);
+                        }
+
+                        // Verify we have some usage
+                        const beforeReset = monitor.getGlobalUsage();
+                        const hadUsage = beforeReset.totalTokens > 0 ||
+                            beforeReset.inputTokens > 0 ||
+                            beforeReset.outputTokens > 0;
+
+                        // Reset all usage
+                        await monitor.resetAllUsage();
+
+                        // Verify global usage is zero
+                        const globalUsage = monitor.getGlobalUsage();
+                        expect(globalUsage.totalTokens).toBe(0);
+                        expect(globalUsage.inputTokens).toBe(0);
+                        expect(globalUsage.outputTokens).toBe(0);
+
+                        // Verify each individual conversation is also zero
+                        for (const conversationId of uniqueIds) {
+                            const usage = monitor.getUsage(conversationId);
+                            expect(usage.totalTokens).toBe(0);
+                            expect(usage.inputTokens).toBe(0);
+                            expect(usage.outputTokens).toBe(0);
+                        }
+
+                        // This verifies we actually had something to reset (when applicable)
+                        return hadUsage || conversationUsages.every(([_, u]) =>
+                            u.totalTokens <= 0 && u.inputTokens <= 0 && u.outputTokens <= 0
+                        );
+                    }
+                ),
+                { numRuns: 50 }
+            );
+        });
+    });
+
+    /**
+     * Property 22: Lazy injection of SettingsService
+     * TokenMonitor should work without SettingsService, then use it after injection.
+     * Validates: Requirements 3.3, 3.4
+     */
+    describe('Property 22: Lazy injection of SettingsService', () => {
+        it('should use defaults when SettingsService is null', async () => {
+            const { tokenStorageService } = createMockDependencies();
+            // Create TokenMonitor WITHOUT SettingsService
+            const monitor = new TokenMonitor(tokenStorageService, null);
+
+            // Should use default limit
+            const limit = await monitor.getEffectiveLimit('conv-1');
+            expect(limit).toBe(DEFAULT_TOKEN_LIMIT);
+        });
+
+        it('should use SettingsService after setSettingsService is called', async () => {
+            const { tokenStorageService } = createMockDependencies();
+            const customLimit = 50000;
+
+            const mockSettingsService = {
+                getSettings: jest.fn().mockResolvedValue({
+                    rateLimit: customLimit,
+                    rateLimitWarningThreshold: 70,
+                }),
+            } as unknown as SettingsService;
+
+            // Create TokenMonitor WITHOUT SettingsService
+            const monitor = new TokenMonitor(tokenStorageService, null);
+
+            // Initially uses defaults
+            const initialLimit = await monitor.getEffectiveLimit('conv-1');
+            expect(initialLimit).toBe(DEFAULT_TOKEN_LIMIT);
+
+            // Inject SettingsService
+            monitor.setSettingsService(mockSettingsService);
+
+            // Now should use custom limit
+            const newLimit = await monitor.getEffectiveLimit('conv-1');
+            expect(newLimit).toBe(customLimit);
+        });
+
+        it('should record and check usage with null SettingsService', async () => {
+            const { tokenStorageService } = createMockDependencies();
+            const monitor = new TokenMonitor(tokenStorageService, null);
+
+            // Record some usage
+            await monitor.recordUsage('conv-1', {
+                inputTokens: 100,
+                outputTokens: 50,
+                totalTokens: 150,
+            });
+
+            // Get usage
+            const usage = monitor.getUsage('conv-1');
+            expect(usage.totalTokens).toBe(150);
+
+            // Check limit should work with defaults
+            const check = await monitor.checkLimit('conv-1', 100);
+            expect(check.allowed).toBe(true);
+            expect(check.limit).toBe(DEFAULT_TOKEN_LIMIT);
+        });
+    });
+
+    /**
+     * Property 23: Initialization with existing data
+     * TokenMonitor should load existing usage data from storage on initialize.
+     */
+    describe('Property 23: Initialization with existing data', () => {
+        it('should load existing usage from storage on initialize', async () => {
+            const { tokenStorageService, mockSettingsService, mockGlobalState } = createMockDependencies();
+
+            // Pre-populate storage with existing usage
+            const existingUsage = {
+                'existing-conv': {
+                    totalTokens: 500,
+                    inputTokens: 300,
+                    outputTokens: 200,
+                    lastUpdated: Date.now(),
+                },
+            };
+            mockGlobalState.update('personaut.tokenUsage', existingUsage);
+
+            const monitor = new TokenMonitor(tokenStorageService, mockSettingsService);
+            await monitor.initialize();
+
+            // Should have loaded the existing conversation
+            const usage = monitor.getUsage('existing-conv');
+            expect(usage.totalTokens).toBe(500);
+            expect(usage.inputTokens).toBe(300);
+            expect(usage.outputTokens).toBe(200);
+        });
+    });
 });
+

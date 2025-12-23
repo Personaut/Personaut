@@ -16,9 +16,12 @@ describe('Property 2: Directory Naming Convention', () => {
 
   /**
    * Helper function to recursively get all directories
+   * Excludes __tests__ as it's a Jest convention
    */
   function getAllDirectories(dirPath: string): string[] {
     const directories: string[] = [];
+    // Directories to exclude from naming checks (conventions from tools)
+    const excludedDirs = ['__tests__', '__mocks__', 'node_modules', '_deprecated'];
 
     if (!fs.existsSync(dirPath)) {
       return directories;
@@ -27,7 +30,7 @@ describe('Property 2: Directory Naming Convention', () => {
     const items = fs.readdirSync(dirPath, { withFileTypes: true });
 
     for (const item of items) {
-      if (item.isDirectory()) {
+      if (item.isDirectory() && !excludedDirs.includes(item.name)) {
         const fullPath = path.join(dirPath, item.name);
         directories.push(fullPath);
         // Recursively get subdirectories

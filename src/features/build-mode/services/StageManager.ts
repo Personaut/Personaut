@@ -1400,4 +1400,41 @@ export class StageManager {
     console.log(`[StageManager] Saved UX specs for ${pageName} iteration ${iterationNumber}: ${specsPath}`);
     return specsPath;
   }
+
+  /**
+   * Update screen status in the building stage file
+   */
+  async updateBuildingScreenStatus(
+    projectName: string,
+    screenId: string,
+    status: 'pending' | 'in-progress' | 'complete' | 'failed',
+    startTime?: number,
+    endTime?: number,
+    error?: string
+  ): Promise<void> {
+    try {
+      // Read current building stage file
+      const buildingStage = await this.readStageFile(projectName, 'building');
+      if (!buildingStage || !buildingStage.data) {
+        console.warn(`[StageManager] No building stage file found for ${projectName}`);
+        return;
+      }
+
+      // Update screen status in the data
+      if (buildingStage.data.screens && Array.isArray(buildingStage.data.screens)) {
+        const screen = buildingStage.data.screens.find((s: any) => s.id === screenId || s.name === screenId);
+        if (screen) {
+          screen.buildStatus = status;
+          if (startTime) screen.buildStartTime = startTime;
+          if (endTime) screen.buildEndTime = endTime;
+          if (error) screen.buildError = error;
+        }
+      }
+
+      // Write back to file
+      await this.writeStageFile(projectName, 'building', buildingStage.data, buildingStage.completed);
+    } catch (error: any) {
+      console.error(`[StageManager] Failed to update screen status:`, error.message);
+    }
+  }
 }

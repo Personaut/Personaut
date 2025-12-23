@@ -61,17 +61,17 @@ export class ChatService {
   async loadConversation(id: string): Promise<Conversation | null> {
     // Restore conversation from storage
     const conversation = await this.conversationManager.restoreConversation(id);
-    
+
     if (!conversation) {
       return null;
     }
 
     // Get or create agent for this conversation
     const agent = await this.agentManager.getOrCreateAgent(id, 'chat');
-    
+
     // Restore message history to the agent
     await agent.loadHistory(conversation.messages);
-    
+
     this.currentConversationId = id;
 
     return conversation;
@@ -83,6 +83,13 @@ export class ChatService {
    */
   getConversations(): Conversation[] {
     return this.conversationManager.getConversations();
+  }
+
+  /**
+   * Refresh conversations from disk
+   */
+  async refreshConversations(): Promise<Conversation[]> {
+    return this.conversationManager.refreshConversations();
   }
 
   /**
@@ -133,13 +140,13 @@ export class ChatService {
 
     // Load the target conversation
     const conversation = await this.loadConversation(toId);
-    
+
     if (!conversation) {
       throw new Error(`Conversation ${toId} not found`);
     }
 
     this.currentConversationId = toId;
-    
+
     console.log('[ChatService] Conversation switched successfully:', {
       toId,
       messageCount: conversation.messages.length,
@@ -152,7 +159,7 @@ export class ChatService {
    */
   async abort(conversationId?: string): Promise<void> {
     const targetId = conversationId || this.currentConversationId;
-    
+
     if (!targetId) {
       console.warn('[ChatService] No conversation ID provided for abort');
       return;
@@ -175,7 +182,7 @@ export class ChatService {
    */
   async abortAndRestartAgent(conversationId?: string): Promise<void> {
     const targetId = conversationId || this.currentConversationId;
-    
+
     if (!targetId) {
       throw new Error('No conversation ID provided for agent restart');
     }
@@ -205,7 +212,7 @@ export class ChatService {
    */
   async exportConversationData(conversationId?: string): Promise<string> {
     const targetId = conversationId || this.currentConversationId;
-    
+
     if (!targetId) {
       throw new Error('No conversation ID provided for export');
     }
@@ -314,7 +321,7 @@ export class ChatService {
 
     // Get current conversation for the target agent
     const targetConversation = await this.conversationManager.restoreConversation(toConversationId);
-    
+
     if (!targetConversation) {
       throw new Error(`Target conversation not found: ${toConversationId}`);
     }

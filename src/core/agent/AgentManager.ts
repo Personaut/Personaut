@@ -15,7 +15,11 @@
 import * as vscode from 'vscode';
 import { Agent } from './Agent';
 import { AgentMode, AgentConfig } from './AgentTypes';
-import { Message } from '../providers/IProvider';
+import { IProvider, Message, ApiConfiguration } from '../providers/IProvider';
+import { GeminiProvider } from '../providers/GeminiProvider';
+import { BedrockProvider } from '../providers/BedrockProvider';
+import { NativeIDEProvider } from '../providers/NativeIDEProvider';
+import { MODEL_IDENTIFIERS } from '../../config/constants';
 import { TokenStorageService } from '../../shared/services/TokenStorageService';
 import { TokenMonitor } from '../../shared/services/TokenMonitor';
 import { ConversationManager } from '../../features/chat/services/ConversationManager';
@@ -452,6 +456,61 @@ export class AgentManager {
    */
   hasAgent(conversationId: string): boolean {
     return this.agents.has(conversationId);
+  }
+
+  /**
+   * Get a provider instance for direct API calls
+   * This is useful for one-off API calls that don't need a full agent
+   * 
+   * @returns IProvider instance configured with current settings
+   */
+  async getProvider(): Promise<IProvider> {
+    const vsConfig = vscode.workspace.getConfiguration('personaut');
+    const providerId = vsConfig.get<string>('provider') || 'gemini';
+
+    // Retrieve API keys from secure storage
+    let apiKey = '';
+    let awsAccessKey = '';
+    let awsSecretKey = '';
+
+    const apiKeys = await this.config.tokenStorageService.getAllApiKeys();
+    apiKey = apiKeys.geminiApiKey || '';
+    awsAccessKey = apiKeys.awsAccessKey || '';
+    awsSecretKey = apiKeys.awsSecretKey || '';
+
+    // Get model ID from settings
+    let modelId: string;
+    if (providerId === 'gemini') {
+      modelId = MODEL_IDENTIFIERS.gemini.default;
+    } else if (providerId === 'bedrock') {
+      modelId = MODEL_IDENTIFIERS.bedrock.default;
+    } else {
+      modelId = '';
+    }
+
+    const apiConfig: ApiConfiguration = {
+      provider: providerId,
+      apiKey: apiKey.trim(),
+      modelId: modelId,
+      awsAccessKey: awsAccessKey,
+      awsSecretKey: awsSecretKey,
+      awsRegion: vsConfig.get<string>('awsRegion') || 'us-east-1',
+      awsProfile: vsConfig.get<string>('awsProfile') || 'default',
+      awsUseProfile: vsConfig.get<boolean>('bedrockUseAwsProfile') || false,
+    };
+
+    if (providerId === 'gemini') {
+      if (!apiConfig.apiKey) {
+        throw new Error("API key not found. Please set 'personaut.geminiApiKey' in settings.");
+      }
+      return new GeminiProvider(apiConfig);
+    } else if (providerId === 'bedrock') {
+      return new BedrockProvider(apiConfig);
+    } else if (providerId === 'nativeIde') {
+      return new NativeIDEProvider();
+    } else {
+      throw new Error(`Provider ${providerId} not implemented yet.`);
+    }
   }
 
   /**

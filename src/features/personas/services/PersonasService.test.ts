@@ -1,25 +1,13 @@
 import { PersonasService } from './PersonasService';
-import { PersonaStorage, Persona } from '../../../shared/services';
-import { AgentManager } from '../../../core/agent/AgentManager';
-import { Agent } from '../../../core/agent/Agent';
+import { PersonaFileStorage } from './PersonaFileStorage';
+import { Persona } from '../types/PersonaFileTypes';
 
-// Mock PersonaStorage
-jest.mock('../../../shared/services', () => ({
-  PersonaStorage: jest.fn(),
-  Persona: jest.fn(),
-}));
-
-// Mock AgentManager
-jest.mock('../../../core/agent/AgentManager');
-
-// Mock Agent
-jest.mock('../../../core/agent/Agent');
+// Mock PersonaFileStorage
+jest.mock('./PersonaFileStorage');
 
 describe('PersonasService', () => {
   let personasService: PersonasService;
-  let mockPersonaStorage: jest.Mocked<PersonaStorage>;
-  let mockAgentManager: jest.Mocked<AgentManager>;
-  let mockAgent: jest.Mocked<Agent>;
+  let mockPersonaStorage: jest.Mocked<PersonaFileStorage>;
 
   const mockPersona: Persona = {
     id: '123',
@@ -30,6 +18,7 @@ describe('PersonasService', () => {
     },
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    versionNumber: 1,
   };
 
   beforeEach(() => {
@@ -41,31 +30,20 @@ describe('PersonasService', () => {
       updatePersona: jest.fn(),
       deletePersona: jest.fn(),
       generatePrompt: jest.fn(),
+      regeneratePersona: jest.fn(),
+      addFavorite: jest.fn(),
+      removeFavorite: jest.fn(),
+      toggleFavorite: jest.fn(),
+      getFavorites: jest.fn(),
     } as any;
 
-    mockAgent = {
-      chat: jest.fn(),
-      dispose: jest.fn(),
-      conversationId: 'test-conversation-id',
-    } as any;
-
-    mockAgentManager = {
-      getOrCreateAgent: jest.fn().mockResolvedValue(mockAgent),
-      disposeAgent: jest.fn().mockResolvedValue(undefined),
-      config: {
-        conversationManager: {
-          getConversation: jest.fn(),
-        },
-      },
-    } as any;
-
-    personasService = new PersonasService(mockPersonaStorage, mockAgentManager);
+    personasService = new PersonasService(mockPersonaStorage);
   });
 
   describe('getPersonas', () => {
     it('should return all personas', async () => {
       const personas = [mockPersona];
-      mockPersonaStorage.getAllPersonas.mockReturnValue(personas);
+      mockPersonaStorage.getAllPersonas.mockResolvedValue(personas);
 
       const result = await personasService.getPersonas();
 
@@ -75,8 +53,8 @@ describe('PersonasService', () => {
   });
 
   describe('getPersonaById', () => {
-    it('should return a persona by ID', async () => {
-      mockPersonaStorage.getPersonaById.mockReturnValue(mockPersona);
+    it('should return persona by id', async () => {
+      mockPersonaStorage.getPersonaById.mockResolvedValue(mockPersona);
 
       const result = await personasService.getPersonaById('123');
 
@@ -84,12 +62,12 @@ describe('PersonasService', () => {
       expect(mockPersonaStorage.getPersonaById).toHaveBeenCalledWith('123');
     });
 
-    it('should return undefined if persona not found', async () => {
-      mockPersonaStorage.getPersonaById.mockReturnValue(undefined);
+    it('should return null if persona not found', async () => {
+      mockPersonaStorage.getPersonaById.mockResolvedValue(null);
 
       const result = await personasService.getPersonaById('999');
 
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
       expect(mockPersonaStorage.getPersonaById).toHaveBeenCalledWith('999');
     });
   });
@@ -97,7 +75,7 @@ describe('PersonasService', () => {
   describe('searchPersonas', () => {
     it('should search personas by query', async () => {
       const personas = [mockPersona];
-      mockPersonaStorage.searchPersonas.mockReturnValue(personas);
+      mockPersonaStorage.searchPersonas.mockResolvedValue(personas);
 
       const result = await personasService.searchPersonas({ query: 'Test' });
 
@@ -139,15 +117,15 @@ describe('PersonasService', () => {
       });
     });
 
-    it('should return undefined if persona not found', async () => {
-      mockPersonaStorage.updatePersona.mockResolvedValue(undefined);
+    it('should return null if persona not found', async () => {
+      mockPersonaStorage.updatePersona.mockResolvedValue(null);
 
       const result = await personasService.updatePersona({
         id: '999',
         updates: { name: 'Updated User' },
       });
 
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
     });
   });
 
@@ -172,8 +150,8 @@ describe('PersonasService', () => {
 
   describe('generatePrompt', () => {
     it('should generate a prompt for a persona', async () => {
-      const prompt = 'Create a backstory for Test User';
-      mockPersonaStorage.getPersonaById.mockReturnValue(mockPersona);
+      const prompt = 'You are Test User, a 30-year-old Developer.';
+      mockPersonaStorage.getPersonaById.mockResolvedValue(mockPersona);
       mockPersonaStorage.generatePrompt.mockReturnValue(prompt);
 
       const result = await personasService.generatePrompt('123');
@@ -183,103 +161,96 @@ describe('PersonasService', () => {
       expect(mockPersonaStorage.generatePrompt).toHaveBeenCalledWith(mockPersona);
     });
 
-    it('should throw error if persona not found', async () => {
-      mockPersonaStorage.getPersonaById.mockReturnValue(undefined);
+    it('should return null if persona not found', async () => {
+      mockPersonaStorage.getPersonaById.mockResolvedValue(null);
 
-      await expect(personasService.generatePrompt('999')).rejects.toThrow(
-        'Persona with id 999 not found'
-      );
+      const result = await personasService.generatePrompt('999');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('favorites', () => {
+    it('should add a favorite', async () => {
+      mockPersonaStorage.addFavorite.mockResolvedValue(undefined);
+
+      await personasService.addFavorite('123');
+
+      expect(mockPersonaStorage.addFavorite).toHaveBeenCalledWith('123');
+    });
+
+    it('should remove a favorite', async () => {
+      mockPersonaStorage.removeFavorite.mockResolvedValue(undefined);
+
+      await personasService.removeFavorite('123');
+
+      expect(mockPersonaStorage.removeFavorite).toHaveBeenCalledWith('123');
+    });
+
+    it('should toggle a favorite', async () => {
+      mockPersonaStorage.toggleFavorite.mockResolvedValue(true);
+
+      const result = await personasService.toggleFavorite('123');
+
+      expect(result).toBe(true);
+      expect(mockPersonaStorage.toggleFavorite).toHaveBeenCalledWith('123');
+    });
+
+    it('should get all favorites', async () => {
+      const favorites = [mockPersona];
+      mockPersonaStorage.getFavorites.mockResolvedValue(favorites);
+
+      const result = await personasService.getFavorites();
+
+      expect(result).toEqual(favorites);
+      expect(mockPersonaStorage.getFavorites).toHaveBeenCalled();
+    });
+  });
+
+  describe('regeneratePersona', () => {
+    it('should regenerate a persona with version increment', async () => {
+      const regeneratedPersona = { ...mockPersona, versionNumber: 2 };
+      mockPersonaStorage.regeneratePersona.mockResolvedValue(regeneratedPersona);
+
+      const result = await personasService.regeneratePersona('123', { name: 'New Name' });
+
+      expect(result).toEqual(regeneratedPersona);
+      expect(mockPersonaStorage.regeneratePersona).toHaveBeenCalledWith('123', { name: 'New Name' });
+    });
+
+    it('should work without updates', async () => {
+      const regeneratedPersona = { ...mockPersona, versionNumber: 2 };
+      mockPersonaStorage.regeneratePersona.mockResolvedValue(regeneratedPersona);
+
+      const result = await personasService.regeneratePersona('123');
+
+      expect(result).toEqual(regeneratedPersona);
+      expect(mockPersonaStorage.regeneratePersona).toHaveBeenCalledWith('123', {});
     });
   });
 
   describe('generateBackstory', () => {
-    it('should generate a backstory using AI via AgentManager', async () => {
-      const prompt = 'Create a backstory for Test User';
-      const backstory = 'This is a generated backstory';
-      
-      mockPersonaStorage.getPersonaById.mockReturnValue(mockPersona);
-      mockPersonaStorage.generatePrompt.mockReturnValue(prompt);
-      mockAgent.chat.mockResolvedValue(undefined);
-      
-      // Mock the conversation retrieval
-      (mockAgentManager as any)['config'].conversationManager.getConversation.mockResolvedValue({
-        id: 'test-conversation-id',
-        messages: [
-          { role: 'user', text: prompt },
-          { role: 'model', text: backstory },
-        ],
-      });
-      
-      mockPersonaStorage.updatePersona.mockResolvedValue({
-        ...mockPersona,
-        backstory,
-      });
+    it('should throw if persona not found', async () => {
+      mockPersonaStorage.getPersonaById.mockResolvedValue(null);
+
+      await expect(personasService.generateBackstory('999')).rejects.toThrow('Persona with id 999 not found');
+    });
+
+    it('should return existing backstory if no agentManager', async () => {
+      const personaWithBackstory = { ...mockPersona, backstory: 'Existing backstory' };
+      mockPersonaStorage.getPersonaById.mockResolvedValue(personaWithBackstory);
 
       const result = await personasService.generateBackstory('123');
 
-      expect(result).toBe(backstory);
-      expect(mockAgentManager.getOrCreateAgent).toHaveBeenCalledWith(
-        expect.stringContaining('persona-backstory-123-'),
-        'chat'
-      );
-      expect(mockAgent.chat).toHaveBeenCalled();
-      expect(mockPersonaStorage.updatePersona).toHaveBeenCalledWith('123', {
-        backstory,
-      });
-      expect(mockAgentManager.disposeAgent).toHaveBeenCalled();
+      expect(result).toBe('Existing backstory');
     });
 
-    it('should call onProgress callback if provided', async () => {
-      const prompt = 'Create a backstory for Test User';
-      const backstory = 'This is a generated backstory';
-      const onProgress = jest.fn();
-      
-      mockPersonaStorage.getPersonaById.mockReturnValue(mockPersona);
-      mockPersonaStorage.generatePrompt.mockReturnValue(prompt);
-      mockAgent.chat.mockResolvedValue(undefined);
-      
-      // Mock the conversation retrieval
-      (mockAgentManager as any)['config'].conversationManager.getConversation.mockResolvedValue({
-        id: 'test-conversation-id',
-        messages: [
-          { role: 'user', text: prompt },
-          { role: 'model', text: backstory },
-        ],
-      });
-      
-      mockPersonaStorage.updatePersona.mockResolvedValue({
-        ...mockPersona,
-        backstory,
-      });
+    it('should return null if no agentManager and no backstory', async () => {
+      mockPersonaStorage.getPersonaById.mockResolvedValue(mockPersona);
 
-      await personasService.generateBackstory('123', onProgress);
+      const result = await personasService.generateBackstory('123');
 
-      expect(onProgress).toHaveBeenCalledWith(backstory);
-    });
-
-    it('should dispose agent even if generation fails', async () => {
-      const prompt = 'Create a backstory for Test User';
-      
-      mockPersonaStorage.getPersonaById.mockReturnValue(mockPersona);
-      mockPersonaStorage.generatePrompt.mockReturnValue(prompt);
-      mockAgent.chat.mockRejectedValue(new Error('AI generation failed'));
-
-      await expect(personasService.generateBackstory('123')).rejects.toThrow(
-        'Failed to generate backstory for persona "Test User": AI generation failed'
-      );
-      
-      expect(mockAgentManager.disposeAgent).toHaveBeenCalled();
-    });
-
-    it('should throw error if persona not found', async () => {
-      mockPersonaStorage.getPersonaById.mockReturnValue(undefined);
-
-      await expect(personasService.generateBackstory('999')).rejects.toThrow(
-        'Persona with id 999 not found'
-      );
-      
-      // Agent should not be created if persona not found
-      expect(mockAgentManager.getOrCreateAgent).not.toHaveBeenCalled();
+      expect(result).toBeNull();
     });
   });
 });

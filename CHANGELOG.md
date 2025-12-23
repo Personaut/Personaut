@@ -5,6 +5,116 @@ All notable changes to the Personaut extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2025-12-23
+
+### Fixed
+- **Build Mode File Naming**: Fixed critical file naming mismatch causing webpack compilation errors
+  - Files now use `screen.name` consistently for both creation and imports
+  - Resolved "Module not found" errors (e.g., `home-feed.tsx` vs `homefeed.tsx`)
+  - Webpack can now correctly resolve all generated screen files
+- **Dev Server Screenshot Caching**: Added dev server restart before screenshot capture
+  - Dev server now stops and restarts fresh before capturing screenshots
+  - Eliminates cached/stale screenshots from previous compilations
+  - 2-second wait added for port release between restarts
+- **Compilation Error Detection**: Screenshots no longer captured when webpack fails
+  - Added compilation output checking before screenshot capture
+  - Build skips screenshots and shows clear error message on webpack failure
+  - Prevents screenshots of broken applications
+- **Token Counter Display Issues**: Complete overhaul of token usage tracking and display
+  - Fixed token counter showing conversation-specific counts instead of global totals
+  - Removed token usage from persisted state to prevent stale data on webview reload
+  - Added visibility change handler to refresh token counts when switching views
+  - Token counter now consistently shows global usage across all sessions
+  - Conversation-specific token updates are now properly filtered out from header display
+- **Conversation History Token Counts**: Token usage now displays correctly in chat history
+  - Fixed `handleGetSessionHistory` hardcoded zeros for token fields
+  - Added token data enrichment from TokenMonitor for all conversation history items
+  - Each conversation card now shows accurate In/Out/Total token counts
+  - Token counts persist correctly across sessions and view switches
+- **Persona Backstory Generation**: Improved quality and system cleanliness
+  - Enhanced backstory prompt to generate detailed 500-750 word stories with core memories
+  - Fixed backstory generation creating unwanted entries in chat history
+  - Backstory generation now uses direct provider call instead of full agent conversation
+  - Token usage for persona generation is still tracked but doesn't clutter conversation list
+- **Persona Regenerate Button**: Added visual loading indicator
+  - Fixed missing CSS `@keyframes spin` animation for loading spinner
+  - Regenerate button now shows animated spinner and is disabled during generation
+  - Clear visual feedback when backstory is being regenerated
+- **Feedback Form State**: Fixed form caching between sessions
+  - Screenshot and selected personas now automatically clear after feedback generation
+  - Fresh state for each new feedback session
+  - Prevents confusion from stale selections
+
+### Added
+- **Comprehensive Documentation**: Major README improvements for v0.1.4
+  - Added AI provider configuration instructions with step-by-step setup
+  - Added system requirements (VS Code 1.90.0+, Node.js v18+, npm)
+  - Added supported frameworks list (React, Next.js, Vue.js, Flutter)
+  - Added persona chat usage instructions
+  - Added data storage locations and privacy information
+  - Added experimental warnings for Build Mode
+  - Added migration notes for users upgrading from v0.1.2 or earlier
+- **Material Design 3 Icons**: Consistent icon styling across the entire UI
+  - All icons updated from `strokeWidth="2"` to `strokeWidth="1.5"` for lighter, modern appearance
+  - Icons updated in: ChatHistoryPanel, ChatInput, ChatHeader, Button component
+  - Consistent Material 3 aesthetic with rounded line caps and joins
+  - Better visual hierarchy with lighter icons that don't compete with content
+- **Detailed Token Display in History**: Enhanced conversation history with granular token information
+  - Each conversation card shows: `In: X · Out: Y · Total: Z`
+  - Token counts displayed at bottom right of each card, next to delete button
+  - Always visible (not just on hover) for quick reference
+  - Formatted numbers with commas for readability
+  - Total count highlighted in primary color with medium font weight
+- **Conversation Memory**: Fixed agent context retention across messages
+  - Added `currentConversationId` state tracking in `useChatState`
+  - Messages now include conversation ID to maintain continuity
+  - Agent reuses existing conversation instead of creating new ones for each message
+  - Proper conversation history maintained throughout chat sessions
+- **File Upload Support**: Added ability to upload images and text files to chat
+  - File upload button with paperclip icon in chat input
+  - Supports images (vision analysis) and text files (.txt, .md, .json, .csv, .log)
+  - Images converted to base64 and passed to vision-capable models
+  - Text files read and added to conversation context
+  - Context files displayed in chat with remove option
+- **Configurable Conversation Limit**: Added user setting for conversation history size
+  - New `maxStoredConversations` setting in VS Code preferences
+  - Default: 1000 conversations (up from hardcoded 20)
+  - Prevents VS Code globalState bloat while giving users control
+  - Dynamic limit retrieval from settings instead of hardcoded constant
+
+### Changed
+- **Token Monitoring Architecture**: Improved accuracy and reliability
+  - Removed optimistic token updates that caused double-counting
+  - Token counter now updates with final accurate values after AI response
+  - Eliminated "flashing" behavior where counter would show incorrect then correct values
+  - Eventual consistency approach prioritizes accuracy over immediate feedback
+- **Conversation History Display**: Enhanced UI for better information density
+  - Token counts moved from inline badges to dedicated bottom row
+  - Delete button and token counts share bottom row with proper spacing
+  - Token counts use smaller font size for compact display
+  - Improved visual hierarchy with muted colors for secondary information
+
+### Known Issues
+- **Build Mode - New Projects Only**: Build Mode currently only supports creating new projects from scratch
+  - Cannot add generated code to existing projects
+  - Workaround: Create new project, then manually integrate code
+  - Existing project support planned for future release
+- **Screenshot Caching** (Partial Fix): Dev server restart improves freshness but full per-screen restart planned
+  - Current: Dev server restarts once before all screenshots
+  - Planned (v0.1.5): Dev server restarts per screen for maximum freshness
+  - Scheduled for December 24, 2025
+
+### Technical Improvements
+- **Code Quality**: Enhanced type safety and error handling
+  - Added null checks for token usage data with fallback to 0
+  - Improved TypeScript typing for conversation enrichment
+  - Better separation of concerns between global and conversation-specific token tracking
+- **Performance**: Optimized state management and data flow
+  - Reduced unnecessary state persistence for frequently-changing data
+  - More efficient token data fetching on visibility changes
+  - Cleaner message handling with proper filtering of update types
+
+
 ## [0.1.3] - 2025-12-14
 
 ### Fixed

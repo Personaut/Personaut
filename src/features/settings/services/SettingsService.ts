@@ -32,9 +32,9 @@ export class SettingsService {
     const settings: Settings = {
       provider: config.get<'nativeIde' | 'gemini' | 'bedrock'>('provider', 'nativeIde'),
       theme: config.get<'dark' | 'match-ide' | 'personaut'>('theme', 'match-ide'),
-      autoRead: config.get<boolean>('autoRead', false),
-      autoWrite: config.get<boolean>('autoWrite', false),
-      autoExecute: config.get<boolean>('autoExecute', false),
+      autoRead: config.get<boolean>('autoRead', true),
+      autoWrite: config.get<boolean>('autoWrite', true),
+      autoExecute: config.get<boolean>('autoExecute', true),
       geminiModel: config.get<string>('geminiModel', 'gemini-1.5-pro-latest'),
       awsRegion: config.get<string>('awsRegion', 'us-east-1'),
       awsProfile: config.get<string>('awsProfile', 'default'),
@@ -50,6 +50,9 @@ export class SettingsService {
       awsAccessKey: apiKeys.awsAccessKey || '',
       awsSecretKey: apiKeys.awsSecretKey || '',
       awsSessionToken: apiKeys.awsSessionToken || '',
+      // Chat settings
+      userMessageColor: config.get<string>('chat.userMessageColor', '#3b82f6'),
+      agentMessageColor: config.get<string>('chat.agentMessageColor', '#10b981'),
     };
 
     return settings;
@@ -155,7 +158,7 @@ export class SettingsService {
 
     // Get full current settings to pass to AgentManager
     const currentSettings = await this.getSettings();
-    
+
     // Notify AgentManager - it will determine if reinitialization is needed
     await this.agentManager.updateSettings(currentSettings);
   }
@@ -230,6 +233,37 @@ export class SettingsService {
     }
     if (settings.rateLimitWarningThreshold !== undefined) {
       await config.update('rateLimitWarningThreshold', settings.rateLimitWarningThreshold, vscode.ConfigurationTarget.Global);
+    }
+
+    // Save chat settings
+    if ((settings as any).userMessageColor !== undefined) {
+      await config.update('chat.userMessageColor', (settings as any).userMessageColor, vscode.ConfigurationTarget.Global);
+    }
+    if ((settings as any).agentMessageColor !== undefined) {
+      await config.update('chat.agentMessageColor', (settings as any).agentMessageColor, vscode.ConfigurationTarget.Global);
+    }
+    if ((settings as any).trackHistory !== undefined) {
+      await config.update('chat.trackHistory', (settings as any).trackHistory, vscode.ConfigurationTarget.Global);
+    }
+    if ((settings as any).defaultPersona !== undefined) {
+      await config.update('chat.defaultPersona', (settings as any).defaultPersona, vscode.ConfigurationTarget.Global);
+    }
+
+    // Save artifacts settings
+    if ((settings as any).artifacts !== undefined) {
+      const artifacts = (settings as any).artifacts;
+      if (artifacts.generateBackstories !== undefined) {
+        await config.update('artifacts.generateBackstories', artifacts.generateBackstories, vscode.ConfigurationTarget.Global);
+      }
+      if (artifacts.generateFeedback !== undefined) {
+        await config.update('artifacts.generateFeedback', artifacts.generateFeedback, vscode.ConfigurationTarget.Global);
+      }
+      if (artifacts.saveToWorkspace !== undefined) {
+        await config.update('artifacts.saveToWorkspace', artifacts.saveToWorkspace, vscode.ConfigurationTarget.Global);
+      }
+      if (artifacts.outputFormat !== undefined) {
+        await config.update('artifacts.outputFormat', artifacts.outputFormat, vscode.ConfigurationTarget.Global);
+      }
     }
 
     // Save API keys to secure storage

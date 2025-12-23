@@ -12,6 +12,9 @@ import {
   ProviderImageSupport,
   GenerateFeedbackParams,
   GenerateFeedbackResult,
+  FeedbackSummary,
+  RatingSystem,
+  DEFAULT_FEEDBACK_SETTINGS,
 } from '../types/FeedbackTypes';
 import { AgentManager } from '../../../core/agent/AgentManager';
 
@@ -47,56 +50,15 @@ export class FeedbackService {
   constructor(
     private readonly storage: FeedbackStorage,
     private readonly agentManager: AgentManager
-  ) {}
+  ) { }
 
   /**
    * Generate feedback for given parameters
-   * This is a placeholder - actual AI generation would be done by the caller
+   * @deprecated Use generateFeedbackWithAI instead
    */
   async generateFeedback(params: GenerateFeedbackParams): Promise<GenerateFeedbackResult> {
-    try {
-      // Validate parameters
-      if (!params.personaNames || params.personaNames.length === 0) {
-        throw new Error('At least one persona is required');
-      }
-
-      if (!params.context || params.context.trim() === '') {
-        throw new Error('Context is required');
-      }
-
-      if (!params.url || params.url.trim() === '') {
-        throw new Error('URL is required');
-      }
-
-      // Create title from context
-      const title =
-        params.context.length > 50 ? params.context.substring(0, 50) + '...' : params.context;
-
-      // Create feedback entry (content would be filled by AI generation)
-      const entry: Omit<FeedbackEntry, 'id' | 'timestamp'> = {
-        title,
-        feedbackType: params.feedbackType,
-        personaNames: params.personaNames,
-        context: params.context,
-        url: params.url,
-        content: '', // Will be filled by AI generation
-        screenshot: params.screenshot,
-      };
-
-      // Save the entry
-      const savedEntry = await this.saveFeedbackEntry(entry);
-
-      return {
-        entry: savedEntry,
-        success: true,
-      };
-    } catch (error) {
-      return {
-        entry: {} as FeedbackEntry,
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+    // Redirect to AI generation
+    return this.generateFeedbackWithAI(params);
   }
 
   /**
@@ -112,20 +74,16 @@ export class FeedbackService {
    */
   async generateFeedbackWithAI(
     params: GenerateFeedbackParams,
-    onProgress?: (chunk: string) => void
+    onProgress?: (chunk: string) => void,
+    ratingSystem: RatingSystem = DEFAULT_FEEDBACK_SETTINGS.ratingSystem
   ): Promise<GenerateFeedbackResult> {
-    // Create a unique conversation ID for this feedback-mode agent
-    const conversationId = `feedback-${params.feedbackType}-${Date.now()}`;
-
     console.log('[FeedbackService] Generating feedback with AI:', {
       feedbackType: params.feedbackType,
       personaNames: params.personaNames,
-      conversationId,
+      personaCount: params.personaNames.length,
+      ratingSystem,
       timestamp: Date.now(),
     });
-
-    let agent;
-    let generatedContent = '';
 
     try {
       // Validate parameters
@@ -133,119 +91,286 @@ export class FeedbackService {
         throw new Error('At least one persona is required');
       }
 
-      if (!params.context || params.context.trim() === '') {
-        throw new Error('Context is required');
+      if (!params.screenshot) {
+        throw new Error('Screenshot is required for feedback');
       }
 
-      if (!params.url || params.url.trim() === '') {
-        throw new Error('URL is required');
-      }
+      // Interview each persona one at a time
+      const feedbackEntries: any[] = [];
+      const ratingScale = this.getRatingScale(ratingSystem);
 
-      // Create feedback-mode agent with persona context
-      agent = await this.agentManager.getOrCreateAgent(conversationId, 'feedback');
+      for (const personaName of params.personaNames) {
+        console.log(`[FeedbackService] Interviewing persona: ${personaName}`);
 
-      // Build system prompt with persona context
-      const personaList = params.personaNames.join(', ');
-      const systemPrompt = `You are providing ${params.feedbackType} feedback as ${personaList}.
-Analyze the provided context and URL, and provide constructive, actionable feedback.
-Focus on user experience, accessibility, design, and functionality.
-Be specific and provide concrete suggestions for improvement.`;
+        const conversationId = `feedback-${personaName}-${Date.now()}`;
+        let agent;
 
-      // Build the user prompt with context and URL
-      const userPrompt = `Please provide ${params.feedbackType} feedback for the following:
+        try {
+          // Create feedback-mode agent
+          agent = await this.agentManager.getOrCreateAgent(conversationId, 'feedback');
 
-Context: ${params.context}
-URL: ${params.url}
+          // Use simplified persona prompt
+          const systemPrompt = `You are ${personaName}. 
 
-${params.screenshot ? 'A screenshot has been provided for visual reference.' : ''}
+You are reviewing a screenshot of an app or website. Respond as yourself - ${personaName} - giving your honest, natural feedback as if you're talking to a friend.
 
-Please analyze and provide detailed, constructive feedback.`;
+Keep your response conversational and authentic. Share what you like, what you don't like, and rate it out of ${ratingScale} based on how well it would work for someone like you.`;
 
-      // Send message to agent
-      // The agent will handle the conversation and call onDidUpdateMessages callback
-      // which will save the conversation via ConversationManager
-      await agent.chat(
-        userPrompt,
-        [], // No context files for feedback mode
-        {}, // Default settings
-        systemPrompt,
-        false // Not a persona chat
-      );
+          // Simple user prompt
+          const userPrompt = `Look at this screenshot and share your thoughts.`;
 
-      // Retrieve the generated content from the saved conversation
-      const conversation = await this.agentManager['config'].conversationManager.getConversation(
-        conversationId
-      );
+          // Debug: Log screenshot info before passing to agent
+          console.log('[FeedbackService] Passing screenshot to agent:', {
+            personaName,
+            hasScreenshot: !!params.screenshot,
+            screenshotLength: params.screenshot?.length || 0,
+            screenshotPrefix: params.screenshot?.substring(0, 50) || 'none',
+          });
 
-      if (conversation && conversation.messages.length > 0) {
-        // Get the last model response
-        const modelMessages = conversation.messages.filter((msg: any) => msg.role === 'model');
-        if (modelMessages.length > 0) {
-          const lastModelMessage = modelMessages[modelMessages.length - 1];
-          generatedContent = lastModelMessage.text || '';
+          // Pass screenshot via images parameter
+          await agent.chat(
+            userPrompt,
+            [], // No context files
+            {}, // Default settings
+            systemPrompt,
+            false, // Not a persona chat
+            params.screenshot ? [params.screenshot] : undefined // Pass screenshot as images array
+          );
+
+          // Retrieve the generated content
+          const conversation = await this.agentManager['config'].conversationManager.getConversation(
+            conversationId
+          );
+
+          let feedbackText = '';
+          if (conversation && conversation.messages.length > 0) {
+            const modelMessages = conversation.messages.filter((msg: any) => msg.role === 'model');
+            if (modelMessages.length > 0) {
+              const lastModelMessage = modelMessages[modelMessages.length - 1];
+              feedbackText = lastModelMessage.text || '';
+            }
+          }
+
+          if (!feedbackText) {
+            console.warn(`[FeedbackService] No feedback generated for ${personaName}`);
+            continue;
+          }
+
+          // Parse rating from feedback
+          const rating = this.parseRating(feedbackText, ratingSystem);
+
+          // Create entry in the format the frontend expects
+          const timestamp = Date.now();
+          const entry = {
+            id: `feedback-${timestamp}`, // Timestamp-based ID to avoid conflicts
+            personaId: personaName,
+            personaName: personaName,
+            rating: rating,
+            comment: feedbackText,
+            screenshotUrl: params.screenshot,
+            context: params.context,
+            timestamp: timestamp,
+            ratingSystem: ratingSystem,
+          };
+
+          feedbackEntries.push(entry);
+
+          // Call progress callback
+          if (onProgress) {
+            onProgress(`${personaName}: ${feedbackText.substring(0, 100)}...`);
+          }
+
+          console.log(`[FeedbackService] Feedback collected from ${personaName}:`, {
+            rating,
+            commentLength: feedbackText.length,
+            ratingSystem,
+          });
+        } catch (error: any) {
+          console.error(`[FeedbackService] Error getting feedback from ${personaName}:`, error);
+          // Continue with next persona instead of failing completely
+        } finally {
+          // Dispose agent
+          if (agent) {
+            try {
+              await this.agentManager.disposeAgent(conversationId);
+            } catch (disposeError) {
+              console.error(`[FeedbackService] Error disposing agent for ${personaName}:`, disposeError);
+            }
+          }
         }
       }
 
-      // If we have a progress callback and content, call it with the full content
-      if (onProgress && generatedContent) {
-        onProgress(generatedContent);
+      if (feedbackEntries.length === 0) {
+        throw new Error('No feedback was generated from any persona');
       }
 
-      // Create title from context
-      const title =
-        params.context.length > 50 ? params.context.substring(0, 50) + '...' : params.context;
+      // Save each entry to storage
+      for (const entry of feedbackEntries) {
+        try {
+          // Convert to storage format
+          const storageEntry = {
+            id: entry.id,
+            title: `Feedback from ${entry.personaName}`,
+            timestamp: entry.timestamp,
+            feedbackType: params.feedbackType,
+            personaNames: [entry.personaName],
+            personaIds: [entry.personaId],
+            context: entry.context || params.context,
+            url: params.url || '',
+            content: entry.comment,
+            screenshot: entry.screenshotUrl,
+            provider: 'ai-generated',
+            rating: entry.rating,
+          };
 
-      // Create feedback entry with AI-generated content
-      const entry: Omit<FeedbackEntry, 'id' | 'timestamp'> = {
-        title,
-        feedbackType: params.feedbackType,
-        personaNames: params.personaNames,
-        context: params.context,
-        url: params.url,
-        content: generatedContent,
-        screenshot: params.screenshot,
-      };
+          // Save to file storage
+          await (this.storage as any).saveFeedbackEntry(storageEntry);
 
-      // Save the entry
-      const savedEntry = await this.saveFeedbackEntry(entry);
+          console.log(`[FeedbackService] Saved feedback entry for ${entry.personaName}`);
+        } catch (saveError) {
+          console.error(`[FeedbackService] Failed to save entry for ${entry.personaName}:`, saveError);
+        }
+      }
 
-      console.log('[FeedbackService] Feedback generated successfully:', {
-        feedbackType: params.feedbackType,
-        conversationId,
-        contentLength: generatedContent.length,
+      console.log('[FeedbackService] All feedback generated successfully:', {
+        totalEntries: feedbackEntries.length,
+        personas: feedbackEntries.map((e) => e.personaName),
       });
 
+      // Generate summary with AI
+      let summary: FeedbackSummary | undefined = undefined;
+      if (feedbackEntries.length > 0) {
+        try {
+          summary = await this.generateFeedbackSummary(feedbackEntries, params);
+        } catch (summaryError) {
+          console.error('[FeedbackService] Failed to generate summary:', summaryError);
+        }
+      }
+
+      // Return all entries with summary
       return {
-        entry: savedEntry,
+        entries: feedbackEntries,
+        entry: feedbackEntries[0], // For backward compatibility
+        summary: summary,
         success: true,
       };
     } catch (error: any) {
       console.error('[FeedbackService] Failed to generate feedback with AI:', {
-        feedbackType: params.feedbackType,
-        conversationId,
         error: error.message,
         stack: error.stack,
       });
 
       return {
-        entry: {} as FeedbackEntry,
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       };
+    }
+  }
+
+  /**
+   * Generate feedback summary using AI
+   * Takes all persona feedback and creates a UX designer/developer summary
+   */
+  private async generateFeedbackSummary(
+    feedbackEntries: any[],
+    params: GenerateFeedbackParams
+  ): Promise<FeedbackSummary> {
+    console.log('[FeedbackService] Generating feedback summary');
+
+    const conversationId = `feedback-summary-${Date.now()}`;
+    let agent;
+
+    try {
+      // Create summarizer agent
+      agent = await this.agentManager.getOrCreateAgent(conversationId, 'feedback');
+
+      // Calculate average rating
+      const totalRating = feedbackEntries.reduce((sum, entry) => sum + entry.rating, 0);
+      const averageRating = totalRating / feedbackEntries.length;
+
+      // Build raw feedback for the prompt
+      const rawFeedbackText = feedbackEntries
+        .map((entry) => {
+          return `**${entry.personaName}** (${entry.rating}/5 stars):\n${entry.comment}\n`;
+        })
+        .join('\n---\n\n');
+
+      // System prompt for summarizer
+      const systemPrompt = `You are a UX designer and developer analyzing user feedback.
+
+Your task is to synthesize feedback from multiple personas into a brief, actionable summary.
+
+Provide a concise summary (2-3 sentences maximum) that highlights the main strengths, key areas for improvement, and specific recommendations.
+
+Write from a professional UX/developer perspective, focusing on what matters for product development.`;
+
+      // User prompt with all feedback
+      const userPrompt = `Here is feedback from ${feedbackEntries.length} user personas about "${params.context}":
+
+${rawFeedbackText}
+
+Average Rating: ${averageRating.toFixed(1)}/5 stars
+
+Please provide a professional summary of this feedback with actionable insights for the development team.`;
+
+      // Clear any existing conversation history to ensure fresh summary
+      const existingConversation = await this.agentManager['config'].conversationManager.getConversation(
+        conversationId
+      );
+      if (existingConversation && existingConversation.messages.length > 0) {
+        console.log('[FeedbackService] Clearing previous conversation history for summary');
+        await this.agentManager['config'].conversationManager.saveConversation(conversationId, []);
+      }
+
+      // Get summary from AI
+      await agent.chat(
+        userPrompt,
+        [], // No context files
+        {}, // Default settings
+        systemPrompt,
+        false // Not a persona chat
+      );
+
+      // Retrieve the generated summary
+      const conversation = await this.agentManager['config'].conversationManager.getConversation(
+        conversationId
+      );
+
+      let summaryText = '';
+      if (conversation && conversation.messages.length > 0) {
+        const modelMessages = conversation.messages.filter((msg: any) => msg.role === 'model');
+        if (modelMessages.length > 0) {
+          const lastModelMessage = modelMessages[modelMessages.length - 1];
+          summaryText = lastModelMessage.text || '';
+        }
+      }
+
+      if (!summaryText) {
+        throw new Error('No summary generated');
+      }
+
+      // Build raw feedback array
+      const rawFeedback = feedbackEntries.map((entry) => ({
+        personaName: entry.personaName,
+        rating: entry.rating,
+        comment: entry.comment,
+      }));
+
+      console.log('[FeedbackService] Summary generated successfully');
+
+      return {
+        averageRating: Math.round(averageRating * 10) / 10, // Round to 1 decimal
+        summary: summaryText,
+        rawFeedback: rawFeedback,
+        timestamp: Date.now(),
+      };
     } finally {
-      // Always dispose the agent after feedback generation completes
+      // Dispose agent
       if (agent) {
         try {
           await this.agentManager.disposeAgent(conversationId);
-          console.log('[FeedbackService] Feedback-mode agent disposed:', {
-            feedbackType: params.feedbackType,
-            conversationId,
-          });
-        } catch (disposeError: any) {
-          console.error('[FeedbackService] Error disposing feedback-mode agent:', {
-            conversationId,
-            error: disposeError.message,
-          });
+        } catch (disposeError) {
+          console.error('[FeedbackService] Error disposing summarizer agent:', disposeError);
         }
       }
     }
@@ -355,6 +480,31 @@ Please analyze and provide detailed, constructive feedback.`;
    * Get all feedback entries from storage
    */
   getFeedbackHistory(): FeedbackEntry[] {
+    // Load from file storage if available
+    if (typeof (this.storage as any).getCachedFeedback === 'function') {
+      const storedEntries = (this.storage as any).getCachedFeedback();
+
+      // Convert StoredFeedbackEntry to FeedbackEntry format
+      const feedbackEntries: FeedbackEntry[] = storedEntries.map((stored: any) => ({
+        id: stored.id,
+        personaId: stored.personaIds?.[0] || stored.personaNames[0],
+        personaName: stored.personaNames[0],
+        rating: stored.rating || 3,
+        comment: stored.content || '',
+        screenshotUrl: stored.screenshot,
+        context: stored.context,
+        timestamp: stored.timestamp,
+        ratingSystem: 'stars' as const,
+      }));
+
+      console.log('[FeedbackService] Loaded feedback history from file storage:', {
+        count: feedbackEntries.length,
+      });
+
+      return feedbackEntries.sort((a, b) => b.timestamp - a.timestamp);
+    }
+
+    // Fallback to old storage (for backward compatibility)
     const history = this.storage.get<FeedbackEntry[]>(FeedbackService.STORAGE_KEY, []);
     return history.sort((a, b) => b.timestamp - a.timestamp);
   }
@@ -424,11 +574,11 @@ Please analyze and provide detailed, constructive feedback.`;
   verifyFeedbackMetadata(entry: FeedbackEntry): { valid: boolean; missingFields: string[] } {
     const requiredFields: (keyof FeedbackEntry)[] = [
       'id',
-      'title',
+      'personaId',
+      'personaName',
+      'rating',
+      'comment',
       'timestamp',
-      'feedbackType',
-      'personaNames',
-      'content',
     ];
 
     const missingFields: string[] = [];
@@ -437,11 +587,6 @@ Please analyze and provide detailed, constructive feedback.`;
       if (entry[field] === undefined || entry[field] === null) {
         missingFields.push(field);
       }
-    }
-
-    // Check personaNames is not empty
-    if (entry.personaNames && entry.personaNames.length === 0) {
-      missingFields.push('personaNames (empty array)');
     }
 
     return {
@@ -455,15 +600,17 @@ Please analyze and provide detailed, constructive feedback.`;
    */
   getFeedbackByPersona(personaName: string): FeedbackEntry[] {
     const history = this.getFeedbackHistory();
-    return history.filter((e) => e.personaNames.includes(personaName));
+    return history.filter((e) => e.personaName === personaName);
   }
 
   /**
    * Get feedback entries by type
+   * @deprecated New feedback entries don't have feedbackType
    */
   getFeedbackByType(feedbackType: 'individual' | 'group'): FeedbackEntry[] {
     const history = this.getFeedbackHistory();
-    return history.filter((e) => e.feedbackType === feedbackType);
+    // New entries don't have feedbackType, return empty array
+    return [];
   }
 
   /**
@@ -473,5 +620,87 @@ Please analyze and provide detailed, constructive feedback.`;
     return FeedbackService.PROVIDER_IMAGE_SUPPORT.filter((p) => p.supportsImages).map(
       (p) => p.provider
     );
+  }
+
+  /**
+   * Get rating scale description based on rating system
+   */
+  private getRatingScale(system: RatingSystem): string {
+    switch (system) {
+      case '1-100':
+        return '100';
+      case '1-10':
+        return '10';
+      case 'stars':
+      default:
+        return '5 stars';
+    }
+  }
+
+  /**
+   * Parse rating from feedback text based on rating system
+   */
+  private parseRating(text: string, system: RatingSystem): number {
+    switch (system) {
+      case '1-100': {
+        const match = text.match(/(\d+)\s*(?:\/|out of)\s*100/i);
+        return match ? Math.max(1, Math.min(100, parseInt(match[1]))) : 50;
+      }
+
+      case '1-10': {
+        const match = text.match(/(\d+)\s*(?:\/|out of)\s*10/i);
+        return match ? Math.max(1, Math.min(10, parseInt(match[1]))) : 5;
+      }
+
+      case 'stars': {
+        // Stars (1-5) - try multiple patterns
+
+        // Pattern 1: "X out of 5 stars" or "X/5 stars"
+        const matchOutOf5 = text.match(/(\d+)\s*(?:out of|\/)\s*5\s*stars?/i);
+        if (matchOutOf5) {
+          const rating = Math.max(1, Math.min(5, parseInt(matchOutOf5[1])));
+          console.log('[FeedbackService] Parsed rating (out of 5):', { text: matchOutOf5[0], rating });
+          return rating;
+        }
+
+        // Pattern 2: "X stars" or "X star"
+        const matchStars = text.match(/(\d+)\s*stars?/i);
+        if (matchStars) {
+          const rating = Math.max(1, Math.min(5, parseInt(matchStars[1])));
+          console.log('[FeedbackService] Parsed rating (stars):', { text: matchStars[0], rating });
+          return rating;
+        }
+
+        // Pattern 3: "X/5"
+        const matchSlash5 = text.match(/(\d+)\s*\/\s*5/i);
+        if (matchSlash5) {
+          const rating = Math.max(1, Math.min(5, parseInt(matchSlash5[1])));
+          console.log('[FeedbackService] Parsed rating (X/5):', { text: matchSlash5[0], rating });
+          return rating;
+        }
+
+        // Try to convert from 100 scale to stars
+        const match100 = text.match(/(\d+)\s*(?:\/|out of)\s*100/i);
+        if (match100) {
+          const score = parseInt(match100[1]);
+          const rating = Math.max(1, Math.min(5, Math.round((score / 100) * 5)));
+          console.log('[FeedbackService] Parsed rating (100 scale):', { text: match100[0], score, rating });
+          return rating;
+        }
+
+        // Try to convert from 10 scale to stars
+        const match10 = text.match(/(\d+)\s*(?:\/|out of)\s*10/i);
+        if (match10) {
+          const score = parseInt(match10[1]);
+          const rating = Math.max(1, Math.min(5, Math.round((score / 10) * 5)));
+          console.log('[FeedbackService] Parsed rating (10 scale):', { text: match10[0], score, rating });
+          return rating;
+        }
+
+        // Default to middle rating
+        console.log('[FeedbackService] No rating found, using default: 3');
+        return 3;
+      }
+    }
   }
 }

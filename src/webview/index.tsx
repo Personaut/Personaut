@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 
-console.log('[Personaut] Webview script loaded');
+console.log('[Personaut] Webview script loaded (Modular Architecture)');
 
 const rootElement = document.getElementById('root');
 console.log('[Personaut] Root element:', rootElement);

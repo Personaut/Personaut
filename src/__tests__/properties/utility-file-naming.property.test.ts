@@ -134,6 +134,12 @@ describe('Property 5: Utility File Naming', () => {
       if (isInUtilsDir && exportsUtilityFunctions(filePath)) {
         const fileName = path.basename(filePath, path.extname(filePath));
 
+        // Allow PascalCase for well-known patterns (Parser, Validator, Formatter, etc.)
+        const isPascalCaseExemptPattern = /^[A-Z][a-zA-Z]*(Parser|Validator|Formatter|Helper|Builder|Factory)$/;
+        if (isPascalCaseExemptPattern.test(fileName)) {
+          return; // Skip this file, it's an acceptable naming pattern
+        }
+
         if (!isCamelCase(fileName)) {
           violations.push(filePath);
         }

@@ -51,6 +51,27 @@ export class PersonasHandler implements IFeatureHandler {
         case 'generate-backstory':
           await this.generateBackstory(message.id, webview);
           break;
+        // Favorites management
+        case 'add-favorite':
+          await this.addFavorite(message.id, webview);
+          break;
+        case 'remove-favorite':
+          await this.removeFavorite(message.id, webview);
+          break;
+        case 'toggle-favorite':
+          await this.toggleFavorite(message.id, webview);
+          break;
+        case 'get-favorites':
+          await this.getFavorites(webview);
+          break;
+        // Clipboard
+        case 'copy-to-clipboard':
+          await this.copyToClipboard(message.text, message.label, webview);
+          break;
+        // Regenerate persona
+        case 'regenerate-persona':
+          await this.regeneratePersona(message.id, message.data, webview);
+          break;
         default:
           throw new Error(`Unknown message type: ${message.type}`);
       }
@@ -260,6 +281,130 @@ export class PersonasHandler implements IFeatureHandler {
       type: 'backstory-generated',
       id,
       backstory,
+      persona,
+    });
+  }
+
+  // ==================== FAVORITES MANAGEMENT ====================
+  // Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5
+
+  /**
+   * Add a persona to favorites
+   */
+  private async addFavorite(id: string, webview: vscode.Webview): Promise<void> {
+    const validation = this.inputValidator.validateInput(id);
+    if (!validation.valid) {
+      throw new Error(validation.reason || 'Invalid persona ID');
+    }
+
+    await this.personasService.addFavorite(id);
+    const favorites = await this.personasService.getFavorites();
+
+    webview.postMessage({
+      type: 'favorite-added',
+      id,
+      favorites,
+    });
+  }
+
+  /**
+   * Remove a persona from favorites
+   */
+  private async removeFavorite(id: string, webview: vscode.Webview): Promise<void> {
+    const validation = this.inputValidator.validateInput(id);
+    if (!validation.valid) {
+      throw new Error(validation.reason || 'Invalid persona ID');
+    }
+
+    await this.personasService.removeFavorite(id);
+    const favorites = await this.personasService.getFavorites();
+
+    webview.postMessage({
+      type: 'favorite-removed',
+      id,
+      favorites,
+    });
+  }
+
+  /**
+   * Toggle a persona's favorite status
+   */
+  private async toggleFavorite(id: string, webview: vscode.Webview): Promise<void> {
+    const validation = this.inputValidator.validateInput(id);
+    if (!validation.valid) {
+      throw new Error(validation.reason || 'Invalid persona ID');
+    }
+
+    const isFavorite = await this.personasService.toggleFavorite(id);
+    const favorites = await this.personasService.getFavorites();
+
+    webview.postMessage({
+      type: 'favorite-toggled',
+      id,
+      isFavorite,
+      favorites,
+    });
+  }
+
+  /**
+   * Get all favorites
+   */
+  private async getFavorites(webview: vscode.Webview): Promise<void> {
+    const favorites = await this.personasService.getFavorites();
+
+    webview.postMessage({
+      type: 'favorites-loaded',
+      favorites,
+    });
+  }
+
+  // ==================== CLIPBOARD ====================
+  // Validates: Requirements 17.3, 17.4, 17.5
+
+  /**
+   * Copy text to clipboard
+   */
+  private async copyToClipboard(
+    text: string,
+    label: string,
+    webview: vscode.Webview
+  ): Promise<void> {
+    if (!text || typeof text !== 'string') {
+      throw new Error('Invalid text to copy');
+    }
+
+    await vscode.env.clipboard.writeText(text);
+
+    webview.postMessage({
+      type: 'clipboard-copied',
+      label,
+      success: true,
+    });
+  }
+
+  // ==================== REGENERATE PERSONA ====================
+  // Validates: Requirements 2.1, 2.2, 2.3, 2.4
+
+  /**
+   * Regenerate a persona with version increment
+   */
+  private async regeneratePersona(
+    id: string,
+    data: any,
+    webview: vscode.Webview
+  ): Promise<void> {
+    const validation = this.inputValidator.validateInput(id);
+    if (!validation.valid) {
+      throw new Error(validation.reason || 'Invalid persona ID');
+    }
+
+    const persona = await this.personasService.regeneratePersona(id, data);
+    if (!persona) {
+      throw new Error(`Persona with id ${id} not found`);
+    }
+
+    webview.postMessage({
+      type: 'persona-regenerated',
       persona,
     });
   }

@@ -1,7 +1,19 @@
 /**
- * Settings feature UI components
+ * Settings Feature
  *
- * Requirements: 6.4
+ * Provides settings management for API providers, models,
+ * and application configuration.
  */
+
+// Main View
 export { SettingsView } from './SettingsView';
-export { ApiConfiguration } from './ApiConfiguration';
+
+// Components
+export * from './components';
+
+// Hooks
+export * from './hooks';
+
+// Types
+export * from './types';
+

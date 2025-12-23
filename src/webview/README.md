@@ -1,147 +1,186 @@
-# Webview Implementation
+# Webview Documentation
 
-This directory contains the React-based webview implementation for the Personaut extension.
+Comprehensive documentation for the Personaut webview architecture.
 
-## Structure
+## Overview
+
+The Personaut webview provides a React-based UI for:
+- **Chat**: Interactive conversations with AI personas
+- **Build**: Multi-stage application generation workflow
+- **Feedback**: Persona-based feedback on screenshots
+
+## Architecture
 
 ```
-webview/
-├── App.tsx              # Main application component with routing
-├── index.tsx            # Entry point
-├── style.css            # Global styles
-├── App.test.tsx         # App component tests
-└── features/            # Feature-based UI components
-    ├── chat/            # Chat interface
-    ├── personas/        # Persona management
-    ├── feedback/        # Feedback generation
-    ├── build-mode/      # Build mode workflow
-    └── settings/        # Settings configuration
+src/webview/
+├── shared/                    # Shared code across features
+│   ├── components/               # Reusable UI components
+│   │   ├── layout/                  # Layout components (Stack, Card, Grid, AppLayout)
+│   │   ├── ui/                      # UI components (Button, Input, Select)
+│   │   └── messages/                # Message display components
+│   ├── hooks/                    # Shared hooks
+│   │   └── useVSCode.ts             # VS Code API integration
+│   ├── theme/                    # Design system
+│   │   ├── theme.ts                 # Token definitions
+│   │   ├── ThemeProvider.tsx        # Context provider
+│   │   └── utils.ts                 # Color utilities
+│   ├── types/                    # TypeScript types
+│   │   └── messages.ts              # Message type definitions
+│   └── utils/                    # Utility functions
+│       ├── messageRouter.ts         # Message routing
+│       ├── streamingHandler.ts      # Streaming updates
+│       └── stateManager.ts          # State persistence
+├── features/                  # Feature modules
+│   ├── build/                    # Build mode feature
+│   │   ├── stages/                  # Build stages (7 stages)
+│   │   ├── components/              # Build-specific components
+│   │   ├── hooks/                   # Build state management
+│   │   └── types/                   # Build types
+│   ├── feedback/                 # Feedback feature
+│   │   ├── components/              # Feedback components
+│   │   ├── hooks/                   # Feedback state
+│   │   └── types/                   # Feedback types
+│   ├── chat/                     # Chat feature
+│   ├── personas/                 # Persona management
+│   ├── settings/                 # Settings feature
+│   └── userbase/                 # UserBase feature
+└── App.tsx                    # Main application shell
 ```
 
-## App Component
+## Design System
 
-The `App.tsx` component serves as the main routing layer for the webview. It:
+### Theme Tokens
 
-- **Manages view state**: Switches between chat, personas, feedback, build, settings, and history views
-- **Handles token usage tracking**: Displays and manages token consumption
-- **Provides navigation**: Header with buttons to switch between features
-- **Manages conversation history**: Lists and loads previous conversations
-- **Communicates with extension**: Uses VS Code API to send/receive messages
+All styling uses design tokens for consistency:
 
-### View Routing
+```tsx
+import { colors, spacing, typography, borderRadius } from '@/shared/theme';
 
-The app supports the following views:
-
-- `chat`: Main chat interface (default)
-- `personas`: Persona management interface
-- `feedback`: Feedback generation interface
-- `build`: Build mode workflow interface
-- `settings`: Settings configuration interface
-- `history`: Conversation history list
-
-### State Management
-
-State is persisted using the VS Code webview state API:
-
-```typescript
-vscode.getState()  // Load saved state
-vscode.setState()  // Save state
+const style = {
+  backgroundColor: colors.background.primary,
+  padding: spacing.md,
+  fontSize: typography.fontSize.md,
+  borderRadius: borderRadius.lg,
+};
 ```
 
-Persisted state includes:
-- Current view
-- Token usage statistics
-- Conversation history
-- Rate limit settings
+### Color Contrast
 
-### Message Handling
+All colors meet WCAG 2.1 AA standards:
+- Text: 4.5:1 minimum contrast ratio
+- UI Components: 3:1 minimum contrast ratio
 
-The app listens for messages from the extension:
+### Spacing Scale
 
-- `usage-update`: Updates token usage statistics
-- `history-updated`: Updates conversation history
-- `load-conversation`: Switches to chat view with loaded conversation
-- `settings-loaded`: Updates rate limit settings
+Based on 4px unit:
+- `xs`: 4px
+- `sm`: 8px
+- `md`: 12px
+- `lg`: 16px
+- `xl`: 24px
+- `2xl`: 32px
 
-### Requirements Validation
+## Message Routing
 
-✅ **Requirement 1.5**: Webview features directory mirrors backend feature structure
-- Feature components organized in `features/` directory
-- Each feature has its own subdirectory (chat, personas, feedback, build-mode, settings)
-- Components imported from feature modules
+Messages from VS Code extension are routed by type:
 
-✅ **Refactored to use feature components**:
-- `ChatView` from `./features/chat`
-- `PersonasView` from `./features/personas`
-- `FeedbackView` from `./features/feedback`
-- `BuildView` from `./features/build-mode`
-- `SettingsView` from `./features/settings`
+```tsx
+import { createMessageRouter } from '@/shared/utils';
 
-✅ **Updated routing logic**:
-- View state managed with `useState<View>`
-- Conditional rendering based on current view
-- Navigation buttons toggle between views
+const router = createMessageRouter({
+  chat: [handleChatMessage],
+  build: [handleBuildMessage],
+  feedback: [handleFeedbackMessage],
+  global: [logAllMessages],
+});
+```
 
-✅ **Updated state management**:
-- State persisted with VS Code API
-- Message handling for extension communication
-- Token usage tracking
-- Conversation history management
+## State Persistence
 
-✅ **Verified UI functionality**:
-- Header with navigation buttons
-- Token usage display with reset functionality
-- View switching between all features
-- Conversation history with load/delete actions
-- Proper ARIA labels for accessibility
+State is persisted via VS Code's webview state API:
 
-## Feature Components
+```tsx
+import { createStateManager } from '@/shared/utils';
 
-Each feature component is responsible for its own UI and business logic:
+const stateManager = createStateManager(getState, setState);
 
-- **ChatView**: Chat interface with message display and input
-- **PersonasView**: Persona creation, editing, and management
-- **FeedbackView**: Feedback generation with persona selection
-- **BuildView**: Build mode workflow with stage management
-- **SettingsView**: API configuration and preferences
+// Get feature state
+const buildState = stateManager.getFeatureState('buildState');
 
-## Styling
+// Update feature state
+stateManager.setFeatureState('buildState', newBuildState);
+```
 
-The webview uses CSS custom properties for theming, allowing it to adapt to the VS Code theme:
+## Streaming Updates
 
-- `--vscode-editor-background`: Primary background color
-- `--vscode-editor-foreground`: Primary text color
-- `--vscode-input-background`: Input field background
-- `--vscode-focusBorder`: Focus indicator color
-- And more...
+Real-time LLM responses are handled with streaming:
 
-## Testing
+```tsx
+import { createStreamingHandler } from '@/shared/utils';
 
-Tests are located in `App.test.tsx` and verify:
+const handleStream = createStreamingHandler({
+  onStart: (id) => setLoading(true),
+  onChunk: (id, chunk, content) => setResponse(content),
+  onEnd: (id, content) => setLoading(false),
+  onError: (id, error) => setError(error),
+});
+```
 
-- Component rendering
-- View routing
-- State management
-- Message handling
-- User interactions
+## Component Patterns
 
-Note: React testing requires a different Jest configuration than the backend tests.
+### Using Theme Tokens
 
-## Development
+```tsx
+import { colors, spacing } from '@/shared/theme';
 
-To work on the webview:
+const MyComponent = () => (
+  <div style={{ 
+    backgroundColor: colors.background.secondary,
+    padding: spacing.lg,
+  }}>
+    Content
+  </div>
+);
+```
 
-1. Make changes to components in `features/` directories
-2. Update `App.tsx` if routing logic changes
-3. Test in VS Code by running the extension
-4. Verify all views are accessible and functional
+### Using Layout Components
 
-## Migration Notes
+```tsx
+import { Stack, Card } from '@/shared/components';
 
-This implementation is part of the feature-based architecture refactoring. The old monolithic `App.tsx` (5996 lines) has been replaced with this simplified version (~400 lines) that delegates to feature components.
+const MyComponent = () => (
+  <Stack spacing="md">
+    <Card variant="elevated">
+      <Card.Body>Content</Card.Body>
+    </Card>
+  </Stack>
+);
+```
 
-Key improvements:
-- **Separation of concerns**: Each feature has its own component
-- **Maintainability**: Easier to locate and modify feature-specific code
-- **Testability**: Smaller, focused components are easier to test
-- **Scalability**: New features can be added without modifying App.tsx
+### Using UI Components
+
+```tsx
+import { Button, Input } from '@/shared/components';
+
+const MyComponent = () => (
+  <form>
+    <Input label="Name" value={name} onChange={setName} />
+    <Button variant="primary" onClick={handleSubmit}>
+      Submit
+    </Button>
+  </form>
+);
+```
+
+## Feature Documentation
+
+- [Build Feature](./features/build/README.md)
+- [Feedback Feature](./features/feedback/README.md)
+
+## Screenshots
+
+[App Architecture](./docs/screenshots/app-architecture.png)
+[Component Hierarchy](./docs/screenshots/component-hierarchy.png)
+[Chat View](./docs/screenshots/chat-view.png)
+[Build Overview](./docs/screenshots/build-overview.png)
+[Feedback View](./docs/screenshots/feedback-view.png)

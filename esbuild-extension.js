@@ -16,7 +16,6 @@ async function main() {
         external: [
             "vscode",           // VS Code API - provided by the extension host
             "puppeteer",        // Large native dependency - optional, loaded at runtime
-            "better-sqlite3"    // Native module - would need native build
         ],
         logLevel: "info",
         plugins: [],
