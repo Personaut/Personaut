@@ -195,7 +195,7 @@ export class ChatHandler implements IFeatureHandler {
 
     // Enrich conversations with token usage data
     const enrichedConversations = conversations.map((conv) => {
-      const tokenUsage = this.tokenMonitor.getUsage(conv.id);
+      const tokenUsage = this.tokenMonitor?.getUsage(conv.id) || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
       console.log(`[ChatHandler] Conv ${conv.id}: tokens=${tokenUsage.totalTokens}, in=${tokenUsage.inputTokens}, out=${tokenUsage.outputTokens}`);
       return {
         ...conv,
@@ -406,7 +406,7 @@ export class ChatHandler implements IFeatureHandler {
 
     // Enrich conversations with token usage data
     const enrichedHistory = conversations.map((conv) => {
-      const tokenUsage = this.tokenMonitor.getUsage(conv.id);
+      const tokenUsage = this.tokenMonitor?.getUsage(conv.id) || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
       return {
         ...conv,
         totalInputTokens: tokenUsage.inputTokens || 0,
@@ -770,13 +770,14 @@ export class ChatHandler implements IFeatureHandler {
    * Validates: Requirements 3.1, 3.2, 3.5
    */
   private async handleGetSessionHistory(_message: WebviewMessage, webview: any): Promise<void> {
-    // Refresh conversations from disk to get latest data
-    const conversations = await this.chatService.refreshConversations();
+    // Get conversations from memory (faster than disk refresh)
+    // The conversations are kept up-to-date by AgentManager.onDidUpdateMessages
+    const conversations = this.chatService.getConversations();
 
     console.log('[ChatHandler] Loading session history, found conversations:', conversations.length);
 
     // Filter out build-related conversations (they have their own logs)
-    const chatConversations = conversations.filter(conv => 
+    const chatConversations = conversations.filter(conv =>
       !conv.id.startsWith('build-screen-') &&
       !conv.id.startsWith('build-ux-') &&
       !conv.id.startsWith('build-dev-') &&
@@ -793,7 +794,7 @@ export class ChatHandler implements IFeatureHandler {
     // Transform conversations to session format matching SessionSummary interface
     // Enrich with token usage data from TokenMonitor
     const sessions = chatConversations.map(conv => {
-      const tokenUsage = this.tokenMonitor.getUsage(conv.id);
+      const tokenUsage = this.tokenMonitor?.getUsage(conv.id) || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
       return {
         sessionId: conv.id,
         createdAt: conv.timestamp || Date.now(),
@@ -825,9 +826,8 @@ export class ChatHandler implements IFeatureHandler {
 
     console.log('[ChatHandler] Loading session messages for:', sessionId);
 
-    // Load the conversation from storage
-    const conversations = this.chatService.getConversations();
-    const conversation = conversations.find(c => c.id === sessionId);
+    // Load the conversation from storage AND into the agent
+    const conversation = await this.chatService.loadConversation(sessionId);
 
     if (!conversation) {
       console.warn('[ChatHandler] Conversation not found:', sessionId);
@@ -848,6 +848,7 @@ export class ChatHandler implements IFeatureHandler {
     }));
 
     console.log('[ChatHandler] Loaded', messages.length, 'messages for session:', sessionId);
+    console.log('[ChatHandler] Agent history loaded - LLM has context of previous messages');
 
     webview.postMessage({
       type: 'session-messages-loaded',

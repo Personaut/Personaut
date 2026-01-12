@@ -36,6 +36,12 @@ export class SettingsService {
       autoWrite: config.get<boolean>('autoWrite', true),
       autoExecute: config.get<boolean>('autoExecute', true),
       geminiModel: config.get<string>('geminiModel', 'gemini-1.5-pro-latest'),
+      geminiSafetySettings: {
+        harassment: config.get<string>('gemini.safetySettings.harassment', 'BLOCK_MEDIUM_AND_ABOVE'),
+        hateSpeech: config.get<string>('gemini.safetySettings.hateSpeech', 'BLOCK_MEDIUM_AND_ABOVE'),
+        sexuallyExplicit: config.get<string>('gemini.safetySettings.sexuallyExplicit', 'BLOCK_MEDIUM_AND_ABOVE'),
+        dangerousContent: config.get<string>('gemini.safetySettings.dangerousContent', 'BLOCK_MEDIUM_AND_ABOVE'),
+      },
       awsRegion: config.get<string>('awsRegion', 'us-east-1'),
       awsProfile: config.get<string>('awsProfile', 'default'),
       awsUseProfile: config.get<boolean>('awsUseProfile', false),
@@ -53,6 +59,26 @@ export class SettingsService {
       // Chat settings
       userMessageColor: config.get<string>('chat.userMessageColor', '#3b82f6'),
       agentMessageColor: config.get<string>('chat.agentMessageColor', '#10b981'),
+      // Artifacts settings
+      artifacts: {
+        generateBackstories: config.get<boolean>('artifacts.generateBackstories', true),
+        generateFeedback: config.get<boolean>('artifacts.generateFeedback', true),
+        saveToWorkspace: config.get<boolean>('artifacts.saveToWorkspace', false),
+        outputFormat: config.get<'markdown' | 'json'>('artifacts.outputFormat', 'markdown'),
+      },
+      // Build settings
+      build: {
+        designerModel: config.get<string>('build.designerModel', 'gemini-2.0-flash-exp'),
+        developerModel: config.get<string>('build.developerModel', 'gemini-2.0-flash-exp'),
+        reviewerModel: config.get<string>('build.reviewerModel', 'gemini-2.0-flash-exp'),
+        summarizerModel: config.get<string>('build.summarizerModel', 'gemini-2.0-flash-exp'),
+        maxIterationsPerPage: config.get<number>('build.maxIterationsPerPage', 5),
+        budgetLimit: config.get<number>('build.budgetLimit', 10),
+        budgetWarningThreshold: config.get<number>('build.budgetWarningThreshold', 0.8),
+        reviewerCount: config.get<number>('build.reviewerCount', 3),
+        enableParallelReview: config.get<boolean>('build.enableParallelReview', true),
+        autoMoveToNextPage: config.get<boolean>('build.autoMoveToNextPage', false),
+      },
     };
 
     return settings;
@@ -190,6 +216,22 @@ export class SettingsService {
     }
     if (settings.geminiModel !== undefined) {
       await config.update('geminiModel', settings.geminiModel, vscode.ConfigurationTarget.Global);
+    }
+    // Save Gemini safety settings
+    if (settings.geminiSafetySettings !== undefined) {
+      const safetySettings = settings.geminiSafetySettings;
+      if (safetySettings.harassment !== undefined) {
+        await config.update('gemini.safetySettings.harassment', safetySettings.harassment, vscode.ConfigurationTarget.Global);
+      }
+      if (safetySettings.hateSpeech !== undefined) {
+        await config.update('gemini.safetySettings.hateSpeech', safetySettings.hateSpeech, vscode.ConfigurationTarget.Global);
+      }
+      if (safetySettings.sexuallyExplicit !== undefined) {
+        await config.update('gemini.safetySettings.sexuallyExplicit', safetySettings.sexuallyExplicit, vscode.ConfigurationTarget.Global);
+      }
+      if (safetySettings.dangerousContent !== undefined) {
+        await config.update('gemini.safetySettings.dangerousContent', safetySettings.dangerousContent, vscode.ConfigurationTarget.Global);
+      }
     }
     if (settings.awsRegion !== undefined) {
       await config.update('awsRegion', settings.awsRegion, vscode.ConfigurationTarget.Global);

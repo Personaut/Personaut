@@ -1,6 +1,7 @@
 import React from 'react';
-import { colors, spacing, borderRadius, typography, shadows, transitions } from '../../../shared/theme';
+import { colors, spacing, borderRadius, typography } from '../../../shared/theme';
 import { Button, Spinner } from '../../../shared/components/ui';
+import { EditableCard } from '../../../shared/components/EditableCard';
 import { UserStory, GeneratedFeature } from '../types';
 
 /**
@@ -15,12 +16,18 @@ export interface StoriesStageProps {
     onStoriesChange: (stories: UserStory[]) => void;
     /** Handler to generate stories */
     onGenerateStories: () => void;
+    /** Handler to edit a story */
+    onEditStory?: (id: string, updates: { title?: string; description?: string }) => void;
+    /** Handler to regenerate a story */
+    onRegenerateStory?: (id: string) => void;
     /** Handler for proceeding to next stage */
     onNext: () => void;
     /** Handler for going back */
     onBack: () => void;
     /** Loading state */
     isLoading?: boolean;
+    /** ID of story being regenerated */
+    regeneratingStoryId?: string | null;
 }
 
 /**
@@ -45,9 +52,12 @@ export function StoriesStage({
     stories,
     onStoriesChange,
     onGenerateStories,
+    onEditStory,
+    onRegenerateStory,
     onNext,
     onBack,
     isLoading = false,
+    regeneratingStoryId,
 }: StoriesStageProps) {
     const containerStyle: React.CSSProperties = {
         display: 'flex',
@@ -75,25 +85,10 @@ export function StoriesStage({
         lineHeight: typography.lineHeight.relaxed,
     };
 
-    const storyCardStyle: React.CSSProperties = {
-        padding: spacing.lg,
-        backgroundColor: colors.background.secondary,
-        border: `1px solid ${colors.border}`,
-        borderRadius: borderRadius.xl,
-        boxShadow: shadows.sm,
-        transition: transitions.normal,
-    };
-
     const buttonsStyle: React.CSSProperties = {
         display: 'flex',
         gap: spacing.md,
         marginTop: spacing.lg,
-    };
-
-    const toggleStoryExpanded = (id: string) => {
-        onStoriesChange(
-            stories.map((s) => (s.id === id ? { ...s, expanded: !s.expanded } : s))
-        );
     };
 
     const handleRemoveStory = (id: string) => {
@@ -191,135 +186,98 @@ export function StoriesStage({
                         </Button>
                     </div>
 
-                    {stories.map((story) => (
-                        <div
-                            key={story.id}
-                            style={storyCardStyle}
-                            onClick={() => toggleStoryExpanded(story.id)}
-                        >
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'flex-start',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                <div>
-                                    <h4
-                                        style={{
-                                            fontSize: typography.fontSize.md,
-                                            fontWeight: typography.fontWeight.semibold,
-                                            color: colors.text.primary,
-                                            marginBottom: spacing.xs,
-                                        }}
-                                    >
-                                        {story.title}
-                                    </h4>
-                                    <p
-                                        style={{
-                                            fontSize: typography.fontSize.sm,
-                                            color: colors.text.secondary,
-                                            margin: 0,
-                                        }}
-                                    >
-                                        {story.description}
-                                    </p>
-                                </div>
-                                <svg
-                                    width={20}
-                                    height={20}
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke={colors.text.muted}
-                                    strokeWidth={1.5}
-                                    style={{
-                                        transform: story.expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                                        transition: transitions.fast,
-                                    }}
-                                >
-                                    <path d="M6 9l6 6 6-6" />
-                                </svg>
-                            </div>
+                    {stories.map((story) => {
+                        const priorityColor = story.priority === 'High' ? '#ef4444' : story.priority === 'Medium' ? '#f59e0b' : '#22c55e';
+                        const priorityBg = story.priority === 'High' ? 'rgba(239, 68, 68, 0.1)' : story.priority === 'Medium' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(34, 197, 94, 0.1)';
 
-                            {story.expanded && (
-                                <div
-                                    style={{
-                                        marginTop: spacing.md,
-                                        paddingTop: spacing.md,
-                                        borderTop: `1px solid ${colors.border}`,
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    {/* Requirements */}
-                                    <div style={{ marginBottom: spacing.md }}>
-                                        <h5
-                                            style={{
-                                                fontSize: typography.fontSize.sm,
-                                                fontWeight: typography.fontWeight.medium,
-                                                color: colors.text.primary,
-                                                marginBottom: spacing.sm,
-                                            }}
-                                        >
-                                            Requirements
-                                        </h5>
-                                        <ul
-                                            style={{
-                                                margin: 0,
-                                                paddingLeft: spacing.lg,
-                                                color: colors.text.secondary,
-                                                fontSize: typography.fontSize.sm,
-                                            }}
-                                        >
-                                            {story.requirements.map((req, i) => (
-                                                <li key={i} style={{ marginBottom: spacing.xs }}>
-                                                    {req}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
+                        return (
+                            <EditableCard
+                                key={story.id}
+                                id={story.id}
+                                title={story.title}
+                                description={story.description}
+                                badge={story.featureName ? {
+                                    text: `📦 ${story.featureName}`,
+                                    color: colors.accent,
+                                    backgroundColor: 'rgba(255, 191, 36, 0.15)',
+                                } : story.priority ? {
+                                    text: story.priority,
+                                    color: priorityColor,
+                                    backgroundColor: priorityBg,
+                                } : undefined}
+                                expandable={true}
+                                initialExpanded={story.expanded}
+                                editable={!!onEditStory}
+                                onEdit={onEditStory ? (id, updates) => onEditStory(id, { title: updates.title, description: updates.description }) : undefined}
+                                onRegenerate={onRegenerateStory}
+                                onRemove={handleRemoveStory}
+                                isRegenerating={regeneratingStoryId === story.id}
+                                expandedContent={
+                                    <>
+                                        {/* Requirements */}
+                                        {story.requirements && story.requirements.length > 0 && (
+                                            <div style={{ marginBottom: spacing.md }}>
+                                                <h5
+                                                    style={{
+                                                        fontSize: typography.fontSize.sm,
+                                                        fontWeight: typography.fontWeight.medium,
+                                                        color: colors.text.primary,
+                                                        marginBottom: spacing.sm,
+                                                    }}
+                                                >
+                                                    Requirements
+                                                </h5>
+                                                <ul
+                                                    style={{
+                                                        margin: 0,
+                                                        paddingLeft: spacing.lg,
+                                                        color: colors.text.secondary,
+                                                        fontSize: typography.fontSize.sm,
+                                                    }}
+                                                >
+                                                    {story.requirements.map((req, i) => (
+                                                        <li key={i} style={{ marginBottom: spacing.xs }}>
+                                                            {req}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
 
-                                    {/* Acceptance Criteria */}
-                                    {story.acceptanceCriteria && story.acceptanceCriteria.length > 0 && (
-                                        <div style={{ marginBottom: spacing.md }}>
-                                            <h5
-                                                style={{
-                                                    fontSize: typography.fontSize.sm,
-                                                    fontWeight: typography.fontWeight.medium,
-                                                    color: colors.text.primary,
-                                                    marginBottom: spacing.sm,
-                                                }}
-                                            >
-                                                Acceptance Criteria
-                                            </h5>
-                                            <ul
-                                                style={{
-                                                    margin: 0,
-                                                    paddingLeft: spacing.lg,
-                                                    color: colors.text.secondary,
-                                                    fontSize: typography.fontSize.sm,
-                                                }}
-                                            >
-                                                {story.acceptanceCriteria.map((criteria, i) => (
-                                                    <li key={i} style={{ marginBottom: spacing.xs }}>
-                                                        {criteria}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
-
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleRemoveStory(story.id)}
-                                    >
-                                        Remove Story
-                                    </Button>
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                                        {/* Acceptance Criteria */}
+                                        {story.acceptanceCriteria && story.acceptanceCriteria.length > 0 && (
+                                            <div>
+                                                <h5
+                                                    style={{
+                                                        fontSize: typography.fontSize.sm,
+                                                        fontWeight: typography.fontWeight.medium,
+                                                        color: colors.text.primary,
+                                                        marginBottom: spacing.sm,
+                                                    }}
+                                                >
+                                                    Acceptance Criteria
+                                                </h5>
+                                                <ul
+                                                    style={{
+                                                        margin: 0,
+                                                        paddingLeft: spacing.lg,
+                                                        color: colors.text.secondary,
+                                                        fontSize: typography.fontSize.sm,
+                                                    }}
+                                                >
+                                                    {story.acceptanceCriteria.map((criteria, i) => (
+                                                        <li key={i} style={{ marginBottom: spacing.xs }}>
+                                                            {criteria}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </>
+                                }
+                            />
+                        );
+                    })}
                 </div>
             )}
 

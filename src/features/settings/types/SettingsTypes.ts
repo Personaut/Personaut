@@ -16,6 +16,12 @@ export interface Settings {
   autoExecute: boolean;
   geminiApiKey?: string;
   geminiModel?: string;
+  geminiSafetySettings?: {
+    harassment?: string;
+    hateSpeech?: string;
+    sexuallyExplicit?: string;
+    dangerousContent?: string;
+  };
   awsAccessKey?: string;
   awsSecretKey?: string;
   awsSessionToken?: string;
@@ -31,6 +37,26 @@ export interface Settings {
   // Chat settings
   userMessageColor?: string;
   agentMessageColor?: string;
+  // Artifacts settings
+  artifacts?: {
+    generateBackstories?: boolean;
+    generateFeedback?: boolean;
+    saveToWorkspace?: boolean;
+    outputFormat?: 'markdown' | 'json';
+  };
+  // Build settings
+  build: {
+    designerModel: string;
+    developerModel: string;
+    reviewerModel: string;
+    summarizerModel: string;
+    maxIterationsPerPage: number;
+    budgetLimit: number;
+    budgetWarningThreshold: number;
+    reviewerCount: number;
+    enableParallelReview: boolean;
+    autoMoveToNextPage: boolean;
+  };
 }
 
 /**

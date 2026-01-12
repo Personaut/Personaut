@@ -6,25 +6,24 @@
  * **Validates: Requirements 35.1, 35.3, 35.4, 38.1, 38.2**
  */
 
-import { BuildStage, BUILD_STAGES, StageFileData } from '../types';
+import { DesignStage, DESIGN_STAGES, StageFileData } from '../types';
 
 /**
  * Stage file names
  */
-export const STAGE_FILE_NAMES: Record<BuildStage, string> = {
+export const STAGE_FILE_NAMES: Record<DesignStage, string> = {
     idea: 'idea.json',
-    team: 'team.json',
     users: 'users.json',
     features: 'features.json',
     stories: 'stories.json',
     design: 'design.json',
-    build: 'build.json',
+    finalize: 'finalize.json',
 };
 
 /**
  * Get the file name for a stage
  */
-export function getStageFileName(stage: BuildStage): string {
+export function getStageFileName(stage: DesignStage): string {
     return STAGE_FILE_NAMES[stage];
 }
 
@@ -63,7 +62,7 @@ export function serializeStageData(data: unknown): string {
 /**
  * Create a stage file data wrapper
  */
-export function createStageFileData(stage: BuildStage, data: unknown): StageFileData {
+export function createStageFileData(stage: DesignStage, data: unknown): StageFileData {
     return {
         stage,
         timestamp: Date.now(),
@@ -83,7 +82,7 @@ export function validateStageFileData(data: unknown): data is StageFileData {
 
     return (
         typeof obj.stage === 'string' &&
-        BUILD_STAGES.includes(obj.stage as BuildStage) &&
+        DESIGN_STAGES.includes(obj.stage as DesignStage) &&
         typeof obj.timestamp === 'number' &&
         obj.data !== undefined
     );
@@ -93,31 +92,31 @@ export function validateStageFileData(data: unknown): data is StageFileData {
  * Derive the current stage from completed stages
  */
 export function deriveCurrentStage(
-    completedStages: BuildStage[],
-    _stageData: Record<BuildStage, unknown>
-): BuildStage {
+    completedStages: DesignStage[],
+    _stageData: Record<DesignStage, unknown>
+): DesignStage {
     // Find the first incomplete stage
-    for (const stage of BUILD_STAGES) {
+    for (const stage of DESIGN_STAGES) {
         if (!completedStages.includes(stage)) {
             return stage;
         }
     }
 
     // All stages complete, return last stage
-    return 'build';
+    return 'finalize';
 }
 
 /**
  * Check if all prerequisite stages are complete
  */
 export function arePrerequisitesComplete(
-    stage: BuildStage,
-    completedStages: BuildStage[]
+    stage: DesignStage,
+    completedStages: DesignStage[]
 ): boolean {
-    const stageIndex = BUILD_STAGES.indexOf(stage);
+    const stageIndex = DESIGN_STAGES.indexOf(stage);
 
     for (let i = 0; i < stageIndex; i++) {
-        if (!completedStages.includes(BUILD_STAGES[i])) {
+        if (!completedStages.includes(DESIGN_STAGES[i])) {
             return false;
         }
     }
@@ -128,10 +127,10 @@ export function arePrerequisitesComplete(
 /**
  * Get the next stage after the given stage
  */
-export function getNextStage(stage: BuildStage): BuildStage | null {
-    const currentIndex = BUILD_STAGES.indexOf(stage);
-    if (currentIndex < BUILD_STAGES.length - 1) {
-        return BUILD_STAGES[currentIndex + 1];
+export function getNextStage(stage: DesignStage): DesignStage | null {
+    const currentIndex = DESIGN_STAGES.indexOf(stage);
+    if (currentIndex < DESIGN_STAGES.length - 1) {
+        return DESIGN_STAGES[currentIndex + 1];
     }
     return null;
 }
@@ -139,10 +138,10 @@ export function getNextStage(stage: BuildStage): BuildStage | null {
 /**
  * Get the previous stage before the given stage
  */
-export function getPreviousStage(stage: BuildStage): BuildStage | null {
-    const currentIndex = BUILD_STAGES.indexOf(stage);
+export function getPreviousStage(stage: DesignStage): DesignStage | null {
+    const currentIndex = DESIGN_STAGES.indexOf(stage);
     if (currentIndex > 0) {
-        return BUILD_STAGES[currentIndex - 1];
+        return DESIGN_STAGES[currentIndex - 1];
     }
     return null;
 }
@@ -150,15 +149,15 @@ export function getPreviousStage(stage: BuildStage): BuildStage | null {
 /**
  * Calculate completion percentage
  */
-export function calculateProgress(completedStages: BuildStage[]): number {
-    return Math.round((completedStages.length / BUILD_STAGES.length) * 100);
+export function calculateProgress(completedStages: DesignStage[]): number {
+    return Math.round((completedStages.length / DESIGN_STAGES.length) * 100);
 }
 
 /**
  * Get stage index (0-based)
  */
-export function getStageIndex(stage: BuildStage): number {
-    return BUILD_STAGES.indexOf(stage);
+export function getStageIndex(stage: DesignStage): number {
+    return DESIGN_STAGES.indexOf(stage);
 }
 
 /**

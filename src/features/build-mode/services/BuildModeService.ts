@@ -24,6 +24,15 @@ import {
   StageName,
 } from '../types/BuildModeTypes';
 import { Persona } from '../../personas/types/PersonasTypes';
+import {
+  USER_RESEARCH_ANALYST_PROMPT,
+  COMPETITIVE_ANALYSIS_PROMPT,
+  MARKET_RESEARCH_PROMPT,
+  USER_RESEARCHER_PROMPT,
+  PRODUCT_STRATEGIST_PROMPT,
+  RESEARCH_SYNTHESIS_PROMPT,
+} from '../../../core/prompts/BuildPrompts';
+import { PERSONA_INTERVIEW_PROMPT } from '../../../core/prompts/PersonaPrompts';
 
 export interface ScreenBuildStatus {
   screenName: string;
@@ -397,8 +406,8 @@ Provide helpful, structured content based on the user's request. Focus on practi
         const agent = await this.agentManager.getOrCreateAgent(conversationId, 'build');
         console.log(`[BuildModeService] Agent created, starting chat with ${persona.name}`);
 
-        // System prompt simulates the persona speaking naturally
-        const systemPrompt = `You are ${persona.name}. 
+        // Use centralized persona interview prompt
+        const systemPrompt = PERSONA_INTERVIEW_PROMPT(persona.name) + `
 Occupation: ${persona.attributes.occupation || 'User'}.
 Backstory: ${persona.backstory || 'No backstory'}.
 Traits: ${JSON.stringify(persona.attributes)}.
@@ -506,7 +515,7 @@ Please be specific about those features - I want to hear about at least 4 things
 
     try {
       const agent = await this.agentManager.getOrCreateAgent(consolidatorId, 'build');
-      const systemPrompt = `You are a user research analyst. Your job is to read through user interview transcripts and extract key feature requests and insights.`;
+      const systemPrompt = USER_RESEARCH_ANALYST_PROMPT;
 
       const prompt = `Product Idea: ${idea}
         
@@ -520,14 +529,12 @@ YOUR TASK:
 4. Rank by how many users mentioned similar features
 5. Keep individual variations in the quotes
 
-IMPORTANT: With ${surveyResponses.length} users requesting ~4-5 features each, you should identify approximately ${surveyResponses.length * 4}-${surveyResponses.length * 5} total feature requests, then group similar ones.
+IMPORTANT REQUIREMENTS:
+- Generate a MINIMUM of 5 distinct features (more is better)
+- With ${surveyResponses.length} users requesting ~4-5 features each, you should identify approximately ${surveyResponses.length * 4}-${surveyResponses.length * 5} total feature requests, then group similar ones into at least 5-10 consolidated features
+- If fewer than 5 features are extracted, add reasonable features based on the product idea that would complement the user-requested ones
 
-For each consolidated feature:
-- Quote what EACH user who mentioned it actually said (use their exact words)
-- Note all users who mentioned this or similar features
-- Higher priority if multiple users want it
-
-Output JSON format:
+Output ONLY valid JSON in this EXACT format (no markdown, no code blocks):
 {
   "features": [
     {
@@ -537,14 +544,9 @@ Output JSON format:
       "frequency": "High",
       "priority": "High",
       "mentionedBy": ["Emily", "Alex"],
-      "reasoning": "Emily said 'I would love to...' and Alex mentioned 'For me, this is critical because...'",
-      "surveyResponses": [
-        { "personaId": "1", "personaName": "Emily", "feedback": "Direct quote from their interview..." },
-        { "personaId": "2", "personaName": "Alex", "feedback": "Direct quote..." }
-      ]
+      "reasoning": "Emily said she would love this feature. Alex mentioned it is critical for him."
     }
   ],
-  "rawInterviews": ${JSON.stringify(surveyResponses)},
   "surveyComplete": true
 }`;
 
@@ -556,10 +558,69 @@ Output JSON format:
 
       let finalResult: any = { features: [], rawInterviews: surveyResponses, surveyComplete: true };
       if (lastMsg && lastMsg.text) {
-        // Use robust JSON parsing
+        // Use robust JSON parsing with AI failover
         const { parseJson } = await import('../../../shared/utils/JsonParser');
-        const parseResult = parseJson(lastMsg.text);
-        if (parseResult.success && parseResult.data) {
+        let parseResult = parseJson(lastMsg.text);
+
+        // FAILOVER 1: If parsing failed, ask AI to fix the JSON
+        if (!parseResult.success && lastMsg.text) {
+          console.log('[BuildModeService] Initial JSON parse failed, asking AI to repair...');
+
+          const repairPrompt = `The following text should be valid JSON but has syntax errors. Please fix it and return ONLY the corrected JSON (no markdown, no explanations, no code blocks):
+
+${lastMsg.text}
+
+Return ONLY valid JSON in this exact format:
+{
+  "features": [...],
+  "surveyComplete": true
+}`;
+
+          try {
+            await agent.chat(repairPrompt, [], {}, 'You are a JSON repair expert. Return only valid JSON, no other text.', false);
+            const repairConversation = await this.agentManager['config'].conversationManager.getConversation(consolidatorId);
+            const repairMsg = repairConversation?.messages.filter((m: any) => m.role === 'model').pop();
+
+            if (repairMsg && repairMsg.text) {
+              parseResult = parseJson(repairMsg.text);
+              if (parseResult.success) {
+                console.log('[BuildModeService] AI successfully repaired the JSON');
+              }
+            }
+          } catch (repairError) {
+            console.error('[BuildModeService] AI repair attempt failed:', repairError);
+          }
+        }
+
+        // FAILOVER 2: If still failed, try regex extraction
+        if (!parseResult.success && lastMsg.text) {
+          console.log('[BuildModeService] Attempting regex extraction as last resort...');
+          try {
+            const { extractFeaturesWithRegex } = await import('../../../shared/utils/RegexExtractor');
+            const features = extractFeaturesWithRegex(lastMsg.text);
+            if (features.length > 0) {
+              finalResult = {
+                features,
+                rawInterviews: surveyResponses,
+                surveyComplete: true,
+                wasExtractedWithRegex: true,
+              };
+              console.log(`[BuildModeService] Regex extraction found ${features.length} features`);
+            } else {
+              throw new Error('No features found with regex');
+            }
+          } catch (regexError) {
+            console.error('[BuildModeService] Regex extraction failed:', regexError);
+            // Final fallback
+            finalResult = {
+              features: [],
+              rawInterviews: surveyResponses,
+              surveyComplete: false,
+              error: parseResult.error,
+            };
+          }
+        } else if (parseResult.success && parseResult.data) {
+          // Success!
           finalResult = parseResult.data;
           // Ensure raw interviews are preserved
           finalResult.rawInterviews = surveyResponses;
@@ -627,7 +688,7 @@ Output JSON format:
       {
         id: 'competitive-analyst',
         role: 'Competitive Analyst',
-        systemPrompt: `You are a competitive analysis researcher. Research and analyze products similar to: "${ideaDescription}"
+        systemPrompt: COMPETITIVE_ANALYSIS_PROMPT(ideaDescription) + `
 
 Identify:
 1. Direct competitors (same solution)
@@ -645,7 +706,7 @@ Provide a comprehensive competitive landscape analysis.`,
       {
         id: 'market-researcher',
         role: 'Market Researcher',
-        systemPrompt: `You are a market research analyst. Research the market opportunity for: "${ideaDescription}"
+        systemPrompt: MARKET_RESEARCH_PROMPT(ideaDescription) + `
 
 Analyze:
 1. Market size and growth projections
@@ -659,7 +720,7 @@ Provide data-driven insights with estimated market figures where possible.`,
       {
         id: 'user-researcher',
         role: 'User Researcher',
-        systemPrompt: `You are a user researcher. Research potential users for: "${ideaDescription}"
+        systemPrompt: USER_RESEARCHER_PROMPT(ideaDescription) + `
 
 Identify:
 1. Target user demographics and psychographics
@@ -757,7 +818,7 @@ Provide actionable insights about who would use this product and why.`,
       try {
         const synthesisAgent = await this.agentManager.getOrCreateAgent(synthesisId, 'build');
 
-        const synthesisPrompt = `You are a research synthesis expert. Consolidate the following research findings into a comprehensive report.
+        const synthesisPrompt = RESEARCH_SYNTHESIS_PROMPT + ` 
 
 PRODUCT IDEA: ${ideaDescription}
 
@@ -784,7 +845,7 @@ Be specific and actionable in your recommendations.`;
           synthesisPrompt,
           [],
           {},
-          'You are a senior product strategist synthesizing research into an actionable report.',
+          PRODUCT_STRATEGIST_PROMPT,
           false
         );
 
@@ -833,4 +894,5 @@ Be specific and actionable in your recommendations.`;
       return result;
     }
   }
+
 }

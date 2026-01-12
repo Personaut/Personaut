@@ -11,19 +11,19 @@
  *
  * **Validates: Requirements 13.2, 8.1, 31.1**
  */
-import React, { useMemo, useCallback, useEffect } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { colors, spacing } from '../../shared/theme';
 import { useVSCode } from '../../shared/hooks/useVSCode';
 import { useBuildState, useBuildActions } from './hooks';
 import { StageProgress, BuildLogsPanel } from './components';
+import { ParsingErrorModal, ParsingError } from '../../shared/components/ParsingErrorModal';
 import {
     IdeaStage,
-    TeamStage,
     UsersStage,
     FeaturesStage,
     StoriesStage,
     DesignStage,
-    BuildStage as BuildingStage,
+    FinalizeStage,
 } from './stages';
 import {
     BuildStage,
@@ -53,6 +53,16 @@ export interface BuildViewProps {
     availablePersonas?: UserPersona[];
     /** Active build state for restoration */
     activeBuildState?: any;
+    /** Current page being built */
+    currentPage?: string | null;
+    /** Current phase of iteration (design, development, review, consolidation, decision) */
+    currentPhase?: string | null;
+    /** Iteration feedback from personas */
+    iterationFeedback?: any[];
+    /** Average rating from feedback */
+    averageRating?: number | null;
+    /** Handler for user decision (iterate/next-page) */
+    onDecision?: (decision: 'iterate' | 'next-page') => void;
 }
 
 /**
@@ -72,10 +82,11 @@ export function BuildView({
     onBuildComplete: _onBuildComplete,
     projectHistory = [],
     onSelectProject,
-    onStopBuild,
-    availablePersonas = [],
-    activeBuildState,
 }: BuildViewProps) {
+    // Note: Build-related props (currentPage, currentPhase, iterationFeedback, averageRating, onDecision, onStopBuild, activeBuildState)
+    // are kept in the interface for backward compatibility but are not used in the Design workflow.
+    // They can be removed in a future cleanup once Build mode is fully deprecated.
+    const availablePersonas = (arguments[0] as BuildViewProps).availablePersonas ?? [];
     const { postMessage } = useVSCode();
     const buildState = useBuildState();
     const buildActions = useBuildActions();
@@ -122,35 +133,85 @@ export function BuildView({
         iteration,
     } = buildState;
 
-    // Restore build state from active build
-    useEffect(() => {
-        if (activeBuildState && activeBuildState.status === 'in-progress') {
-            console.log('[BuildView] Restoring active build state:', activeBuildState);
-
-            // Set project name if available
-            if (activeBuildState.projectName && !projectName) {
-                setProjectName(activeBuildState.projectName);
-
-                // Load building stage data to get screens and framework
-                postMessage({
-                    type: 'load-stage-data',
-                    stage: 'building',
-                    projectName: activeBuildState.projectName
-                });
-            }
-
-            // Set loading state
-            setIsLoading(true);
-
-            // Navigate to design stage (where Build button is)
-            if (currentStage !== 'design') {
-                setCurrentStage('design');
-            }
-        }
-    }, [activeBuildState, projectName, currentStage, setProjectName, setIsLoading, setCurrentStage, postMessage]);
+    // Note: Active build state restoration removed - not needed in Design workflow
+    // The Design workflow does not have an "in-progress" build state to restore
 
     // Log expand state
     const [showLogs, setShowLogs] = React.useState(true);
+
+    // Parsing error state for retry modal
+    const [parsingError, setParsingError] = useState<ParsingError | null>(null);
+
+    // Listen for parsing error messages from backend
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === 'parsing-error') {
+                console.log('[BuildView] Received parsing error:', message);
+                setParsingError({
+                    stage: message.stage,
+                    projectName: message.projectName,
+                    error: message.error,
+                    retryable: message.retryable,
+                    originalMessage: message.originalMessage,
+                });
+            }
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
+
+    // Handle retry from parsing error modal
+    const handleRetryGeneration = useCallback(() => {
+        if (parsingError?.originalMessage) {
+            postMessage({
+                type: 'retry-generation',
+                originalMessage: parsingError.originalMessage,
+            });
+            setParsingError(null);
+        }
+    }, [parsingError, postMessage]);
+
+    // Dismiss parsing error
+    const handleDismissParsingError = useCallback(() => {
+        setParsingError(null);
+    }, []);
+
+    // Look and Feel state
+    const [lookAndFeel, setLookAndFeel] = useState<any>(null);
+    const [isLoadingLookAndFeel, setIsLoadingLookAndFeel] = useState(false);
+
+    // Handle generate look and feel
+    const handleGenerateLookAndFeel = useCallback(() => {
+        setIsLoadingLookAndFeel(true);
+        postMessage({
+            type: 'generate-look-and-feel',
+            projectName,
+            projectTitle,
+            personas: generatedPersonas,
+        });
+    }, [postMessage, projectName, projectTitle, generatedPersonas]);
+
+    // Listen for look and feel messages
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === 'look-and-feel-generated') {
+                console.log('[BuildView] Look and feel generated:', message.lookAndFeel);
+                setLookAndFeel(message.lookAndFeel);
+                setIsLoadingLookAndFeel(false);
+            } else if (message.type === 'look-and-feel-generation-error') {
+                console.error('[BuildView] Look and feel generation error:', message.error);
+                setIsLoadingLookAndFeel(false);
+            } else if (message.type === 'look-and-feel-generation-started') {
+                setIsLoadingLookAndFeel(true);
+            }
+        };
+
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
 
     // Handle stage click in progress bar
     const handleStageClick = (stage: BuildStage) => {
@@ -162,11 +223,25 @@ export function BuildView({
     // Save project data to backend
     const saveProject = useCallback(() => {
         if (projectName) {
+            // Initialize project
             postMessage({
                 type: 'set-project-name',
                 name: projectName,
                 projectName: projectName,
                 title: projectTitle
+            });
+
+            // Save idea stage data
+            postMessage({
+                type: 'save-stage-data',
+                stage: 'idea',
+                projectName: projectName,
+                data: {
+                    projectName: projectName,
+                    projectTitle: projectTitle,
+                    projectDescription: projectTitle, // Use projectTitle as description
+                    codeFolderName: projectName,
+                }
             });
         }
     }, [projectName, projectTitle, postMessage]);
@@ -211,11 +286,12 @@ export function BuildView({
         buildActions.generateScreens(userStories, selectedFramework, projectName);
     }, [buildActions, userStories, selectedFramework, projectName, setIsLoading]);
 
-    // Start build
-    const handleStartBuild = useCallback(() => {
-        setIsLoading(true, 'building');
-        buildActions.startBuild(generatedScreens, selectedFramework, projectName);
-    }, [buildActions, generatedScreens, selectedFramework, projectName, setIsLoading]);
+    // Note: handleStartBuild removed - Build workflow replaced by Design workflow
+    // handleGenerateArtifacts is available for future use when ArchitectAgent is integrated
+    const _handleGenerateArtifacts = useCallback(() => {
+        setIsLoading(true, 'finalize');
+        // Task list and steering document generation will be handled in FinalizeStage
+    }, [setIsLoading]);
 
     // Render current stage
     const renderStage = useMemo(() => {
@@ -238,22 +314,7 @@ export function BuildView({
                     />
                 );
 
-            case 'team':
-                return (
-                    <TeamStage
-                        devFlowOrder={devFlowOrder}
-                        onBack={goToPreviousStage}
-                        onNext={() => {
-                            // Save team data before moving to next stage
-                            buildActions.saveStageData('team', {
-                                devFlowOrder,
-                            }, projectName);
-                            markStageComplete('team');
-                            goToNextStage();
-                        }}
-                        isLoading={isLoading}
-                    />
-                );
+
 
             case 'users':
                 return (
@@ -288,6 +349,16 @@ export function BuildView({
                         features={generatedFeatures}
                         onFeaturesChange={setGeneratedFeatures}
                         onGenerateFeatures={handleGenerateFeatures}
+                        onEditFeature={(id, updates) => {
+                            setGeneratedFeatures(generatedFeatures.map(f =>
+                                f.id === id ? { ...f, name: updates.name ?? f.name, description: updates.description ?? f.description } : f
+                            ));
+                        }}
+                        onRegenerateFeature={(id) => {
+                            // For now, regenerate by removing and re-generating
+                            // In the future, this could call a specific backend endpoint
+                            console.log('[BuildView] Regenerate feature:', id);
+                        }}
                         onBack={goToPreviousStage}
                         onNext={() => {
                             markStageComplete('features');
@@ -304,6 +375,15 @@ export function BuildView({
                         stories={userStories}
                         onStoriesChange={setUserStories}
                         onGenerateStories={handleGenerateStories}
+                        onEditStory={(id, updates) => {
+                            setUserStories(userStories.map(s =>
+                                s.id === id ? { ...s, title: updates.title ?? s.title, description: updates.description ?? s.description } : s
+                            ));
+                        }}
+                        onRegenerateStory={(id) => {
+                            // For now, just log - could post message to backend
+                            console.log('[BuildView] Regenerate story:', id);
+                        }}
                         onBack={goToPreviousStage}
                         onNext={() => {
                             markStageComplete('stories');
@@ -322,6 +402,10 @@ export function BuildView({
                         onScreensChange={setGeneratedScreens}
                         selectedFramework={selectedFramework}
                         onFrameworkChange={setSelectedFramework}
+                        lookAndFeel={lookAndFeel}
+                        onGenerateLookAndFeel={handleGenerateLookAndFeel}
+                        onLookAndFeelChange={setLookAndFeel}
+                        isLoadingLookAndFeel={isLoadingLookAndFeel}
                         onGenerateFlows={handleGenerateFlows}
                         onGenerateScreens={handleGenerateScreens}
                         onBack={goToPreviousStage}
@@ -331,6 +415,7 @@ export function BuildView({
                                 userFlows,
                                 pages: generatedScreens,
                                 framework: selectedFramework,
+                                lookAndFeel,
                             }, projectName);
 
                             // Create initial building.json file
@@ -357,26 +442,25 @@ export function BuildView({
                             });
 
                             markStageComplete('design');
-                            // Don't auto-navigate - let user click on Building stage
-                            // This ensures building.json is created before navigating
+                            goToNextStage(); // Navigate to Building stage
                         }}
                         isLoading={isLoading}
                     />
                 );
 
-            case 'building':
+            case 'finalize':
                 return (
-                    <BuildingStage
+                    <FinalizeStage
+                        projectName={projectName}
+                        projectTitle={projectTitle}
+                        projectDescription={buildData.idea || projectTitle}
+                        personas={generatedPersonas}
+                        features={generatedFeatures}
+                        userStories={userStories}
+                        userFlows={userFlows}
                         screens={generatedScreens}
                         framework={selectedFramework}
-                        projectName={projectName}
-                        codeFolderName={codeFolderName}
-                        iteration={iteration}
-                        onStartBuild={handleStartBuild}
-                        onStopBuild={() => {
-                            postMessage({ type: 'stop-build', projectName });
-                            onStopBuild?.();
-                        }}
+                        lookAndFeel={lookAndFeel}
                         onBack={goToPreviousStage}
                         isLoading={isLoading}
                     />
@@ -417,8 +501,6 @@ export function BuildView({
         handleGenerateStories,
         handleGenerateFlows,
         handleGenerateScreens,
-        handleStartBuild,
-        onStopBuild,
     ]);
 
     const containerStyle: React.CSSProperties = {
@@ -448,13 +530,20 @@ export function BuildView({
                 {renderStage}
             </div>
 
-            {/* Build Logs Panel */}
+            {/* Build Logs Panel - Always show, will display "No logs yet" when empty */}
             <BuildLogsPanel
                 logs={logs}
                 onClear={onClearLogs}
                 isExpanded={showLogs}
                 onToggleExpand={() => setShowLogs(!showLogs)}
                 maxHeight="200px"
+            />
+
+            {/* Parsing Error Modal - shows when JSON parsing fails */}
+            <ParsingErrorModal
+                error={parsingError}
+                onRetry={handleRetryGeneration}
+                onDismiss={handleDismissParsingError}
             />
         </div>
     );

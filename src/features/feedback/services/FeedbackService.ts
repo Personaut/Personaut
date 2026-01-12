@@ -17,6 +17,7 @@ import {
   DEFAULT_FEEDBACK_SETTINGS,
 } from '../types/FeedbackTypes';
 import { AgentManager } from '../../../core/agent/AgentManager';
+import { PERSONA_FEEDBACK_PROMPT, FEEDBACK_SUMMARY_PROMPT } from '../../../core/prompts/FeedbackPrompts';
 
 /**
  * FeedbackService manages feedback generation, image support, and history.
@@ -109,12 +110,8 @@ export class FeedbackService {
           // Create feedback-mode agent
           agent = await this.agentManager.getOrCreateAgent(conversationId, 'feedback');
 
-          // Use simplified persona prompt
-          const systemPrompt = `You are ${personaName}. 
-
-You are reviewing a screenshot of an app or website. Respond as yourself - ${personaName} - giving your honest, natural feedback as if you're talking to a friend.
-
-Keep your response conversational and authentic. Share what you like, what you don't like, and rate it out of ${ratingScale} based on how well it would work for someone like you.`;
+          // Use centralized persona feedback prompt
+          const systemPrompt = PERSONA_FEEDBACK_PROMPT(personaName, ratingScale);
 
           // Simple user prompt
           const userPrompt = `Look at this screenshot and share your thoughts.`;
@@ -295,14 +292,8 @@ Keep your response conversational and authentic. Share what you like, what you d
         })
         .join('\n---\n\n');
 
-      // System prompt for summarizer
-      const systemPrompt = `You are a UX designer and developer analyzing user feedback.
-
-Your task is to synthesize feedback from multiple personas into a brief, actionable summary.
-
-Provide a concise summary (2-3 sentences maximum) that highlights the main strengths, key areas for improvement, and specific recommendations.
-
-Write from a professional UX/developer perspective, focusing on what matters for product development.`;
+      // Use centralized feedback summary prompt
+      const systemPrompt = FEEDBACK_SUMMARY_PROMPT;
 
       // User prompt with all feedback
       const userPrompt = `Here is feedback from ${feedbackEntries.length} user personas about "${params.context}":
@@ -607,8 +598,7 @@ Please provide a professional summary of this feedback with actionable insights 
    * Get feedback entries by type
    * @deprecated New feedback entries don't have feedbackType
    */
-  getFeedbackByType(feedbackType: 'individual' | 'group'): FeedbackEntry[] {
-    const history = this.getFeedbackHistory();
+  getFeedbackByType(_feedbackType: 'individual' | 'group'): FeedbackEntry[] {
     // New entries don't have feedbackType, return empty array
     return [];
   }

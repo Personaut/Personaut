@@ -13,14 +13,9 @@ import {
     SYSTEM_AGENTS,
     IChatHistoryService,
 } from './ChatHistoryTypes';
-import { getChatPersonaPrompt, ChatPersonaConfig } from '../../../core/prompts';
+import { getChatPersonaPrompt, ChatPersonaConfig, DEFAULT_PERSONA_MANAGER_PROMPT } from '../../../core/prompts';
 
-/**
- * Default prompt when persona prompt is not found
- */
-const DEFAULT_PROMPT = `You are a helpful AI assistant for the Personaut extension.
-You help users with persona creation, user research, and product development.
-Be friendly, professional, and provide actionable insights.`;
+
 
 /**
  * Interface for persona storage adapter
@@ -115,10 +110,10 @@ Provide responses that reflect this persona's unique viewpoint, experiences, and
                 personaId,
                 personaType,
             });
-            return DEFAULT_PROMPT;
+            return DEFAULT_PERSONA_MANAGER_PROMPT;
         } catch (error) {
             console.error('[PersonaManager] Error getting persona prompt:', error);
-            return DEFAULT_PROMPT;
+            return DEFAULT_PERSONA_MANAGER_PROMPT;
         }
     }
 

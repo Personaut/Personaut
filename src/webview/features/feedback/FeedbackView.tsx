@@ -260,7 +260,7 @@ export function FeedbackView({
   // File handling
   const handleFileSelect = useCallback(
     (file: File) => {
-      if (!file.type.startsWith('image/')) return;
+      if (!file.type.startsWith('image/')) {return;}
       const reader = new FileReader();
       reader.onload = (e) => {
         setScreenshot({
@@ -280,7 +280,7 @@ export function FeedbackView({
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file) handleFileSelect(file);
+      if (file) {handleFileSelect(file);}
     },
     [handleFileSelect]
   );
@@ -580,7 +580,7 @@ export function FeedbackView({
                     style={{ display: 'none' }}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
-                      if (file) handleFileSelect(file);
+                      if (file) {handleFileSelect(file);}
                     }}
                   />
                   <svg

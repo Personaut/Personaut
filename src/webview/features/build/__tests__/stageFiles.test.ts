@@ -12,12 +12,12 @@ import {
     formatStageTimestamp,
     STAGE_FILE_NAMES,
 } from '../utils/stageFiles';
-import { BUILD_STAGES, BuildStage } from '../types';
+import { DESIGN_STAGES, DesignStage } from '../types';
 
 describe('stageFiles utils', () => {
     describe('STAGE_FILE_NAMES', () => {
         it('has a file name for each stage', () => {
-            BUILD_STAGES.forEach((stage) => {
+            DESIGN_STAGES.forEach((stage) => {
                 expect(STAGE_FILE_NAMES[stage]).toBeDefined();
                 expect(STAGE_FILE_NAMES[stage]).toMatch(/\.json$/);
             });
@@ -115,21 +115,21 @@ describe('stageFiles utils', () => {
 
     describe('deriveCurrentStage', () => {
         it('returns first stage when none complete', () => {
-            const result = deriveCurrentStage([], {} as Record<BuildStage, unknown>);
+            const result = deriveCurrentStage([], {} as Record<DesignStage, unknown>);
             expect(result).toBe('idea');
         });
 
         it('returns next incomplete stage', () => {
-            const result = deriveCurrentStage(['idea', 'team'], {} as Record<BuildStage, unknown>);
-            expect(result).toBe('users');
+            const result = deriveCurrentStage(['idea', 'users'], {} as Record<DesignStage, unknown>);
+            expect(result).toBe('features');
         });
 
-        it('returns build when all stages complete', () => {
+        it('returns finalize when all stages complete', () => {
             const result = deriveCurrentStage(
-                ['idea', 'team', 'users', 'features', 'stories', 'design', 'build'],
-                {} as Record<BuildStage, unknown>
+                ['idea', 'users', 'features', 'stories', 'design', 'finalize'],
+                {} as Record<DesignStage, unknown>
             );
-            expect(result).toBe('build');
+            expect(result).toBe('finalize');
         });
     });
 
@@ -139,28 +139,28 @@ describe('stageFiles utils', () => {
         });
 
         it('returns true when all prerequisites are complete', () => {
-            expect(arePrerequisitesComplete('users', ['idea', 'team'])).toBe(true);
+            expect(arePrerequisitesComplete('features', ['idea', 'users'])).toBe(true);
         });
 
         it('returns false when prerequisites are missing', () => {
-            expect(arePrerequisitesComplete('users', ['idea'])).toBe(false);
+            expect(arePrerequisitesComplete('features', ['idea'])).toBe(false);
         });
     });
 
     describe('getNextStage', () => {
         it('returns next stage', () => {
-            expect(getNextStage('idea')).toBe('team');
+            expect(getNextStage('idea')).toBe('users');
             expect(getNextStage('users')).toBe('features');
         });
 
         it('returns null for last stage', () => {
-            expect(getNextStage('build')).toBe(null);
+            expect(getNextStage('finalize')).toBe(null);
         });
     });
 
     describe('getPreviousStage', () => {
         it('returns previous stage', () => {
-            expect(getPreviousStage('team')).toBe('idea');
+            expect(getPreviousStage('users')).toBe('idea');
             expect(getPreviousStage('features')).toBe('users');
         });
 
@@ -175,13 +175,13 @@ describe('stageFiles utils', () => {
         });
 
         it('returns correct percentage', () => {
-            expect(calculateProgress(['idea'])).toBe(14); // 1/7 * 100 rounded
-            expect(calculateProgress(['idea', 'team', 'users'])).toBe(43); // 3/7 * 100 rounded
+            expect(calculateProgress(['idea'])).toBe(17); // 1/6 * 100 rounded
+            expect(calculateProgress(['idea', 'users', 'features'])).toBe(50); // 3/6 * 100 rounded
         });
 
         it('returns 100 for all stages complete', () => {
             expect(
-                calculateProgress(['idea', 'team', 'users', 'features', 'stories', 'design', 'build'])
+                calculateProgress(['idea', 'users', 'features', 'stories', 'design', 'finalize'])
             ).toBe(100);
         });
     });
@@ -189,8 +189,8 @@ describe('stageFiles utils', () => {
     describe('getStageIndex', () => {
         it('returns correct index for each stage', () => {
             expect(getStageIndex('idea')).toBe(0);
-            expect(getStageIndex('team')).toBe(1);
-            expect(getStageIndex('build')).toBe(6);
+            expect(getStageIndex('users')).toBe(1);
+            expect(getStageIndex('finalize')).toBe(5);
         });
     });
 

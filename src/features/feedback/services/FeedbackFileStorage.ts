@@ -219,7 +219,7 @@ export class FeedbackFileStorage implements FeedbackStorage {
      * Save the index to disk
      */
     private async saveIndex(): Promise<void> {
-        if (!this.indexCache) return;
+        if (!this.indexCache) {return;}
         this.indexCache.lastUpdated = Date.now();
         await this.fileStorage.write(INDEX_FILE, this.indexCache);
     }
@@ -407,7 +407,7 @@ export class FeedbackFileStorage implements FeedbackStorage {
      * Remove a feedback entry from the index
      */
     private async removeFromIndex(id: string): Promise<void> {
-        if (!this.indexCache) return;
+        if (!this.indexCache) {return;}
         this.indexCache.entries = this.indexCache.entries.filter(e => e.id !== id);
         await this.saveIndex();
     }

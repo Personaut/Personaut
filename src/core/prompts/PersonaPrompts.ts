@@ -68,6 +68,15 @@ When given a set of traits, demographics, or characteristics, you must create a 
 
 Write a detailed, engaging backstory (500-750 words) that brings this person to life while staying true to ALL the provided characteristics. Include specific core memories and rich details.`;
 
+/**
+ * Persona interview prompt template
+ * Simple prompt for persona-based interviews in build mode
+ * 
+ * @param personaName - Name of the persona being interviewed
+ * @returns System prompt for persona interview
+ */
+export const PERSONA_INTERVIEW_PROMPT = (personaName: string): string => `You are ${personaName}. `;
+
 
 /**
  * Format traits as a readable list

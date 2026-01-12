@@ -5,6 +5,83 @@ All notable changes to the Personaut extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-01-12
+
+### 🎉 Major Features
+
+#### Build Workflow Transformation
+Complete redesign of the Build feature with a comprehensive 6-stage design funnel:
+- **Idea Stage** → Define project concept with title and description
+- **Users Stage** → Generate and customize AI personas with demographics
+- **Features Stage** → AI-powered feature generation through persona interviews
+- **Stories Stage** → User story generation with traceability to features
+- **Design Stage** → Framework selection, screen generation, user flows, and Look & Feel
+- **Finalize Stage** → Comprehensive project documentation export
+
+#### Finalize Stage (NEW)
+Generate and export comprehensive project documentation:
+- **Task List** - Detailed implementation tasks for setup, each feature, user story, screen, and user flow
+- **Steering Document** - Technical specifications with design system, personas, and coding standards
+- **Project Documentation** - Full project overview with table of contents
+- **Requirements Document** - Formal requirements with acceptance criteria
+
+Each task includes:
+- Unique task IDs (TASK-1, TASK-2, etc.)
+- Estimated time ranges
+- Implementation sub-tasks as checkboxes
+- Acceptance criteria
+- Quality checklists
+
+#### Look and Feel Generation (NEW)
+AI-generated design system through persona interviews:
+- Personas interviewed for design preferences (colors, fonts, mood)
+- Synthesized design recommendations
+- Color palette (primary, secondary, accent, background)
+- Typography recommendations
+- Overall style and mood guidance
+- Design system exported to steering document
+
+### Added
+- **Finalize Stage Component** - New React component for documentation generation and export
+- **Comprehensive Task List** - 7-phase task breakdown covering entire project lifecycle
+- **Export All Documents** - One-click export of 4 comprehensive markdown documents
+- **Build Log Persistence** - Build logs now persist to disk and survive webview reloads
+- **Build Log UI Messages** - Real-time status updates during building workflow
+- **Thinking Mode Support** - Extended thinking capabilities for complex agent reasoning
+- **Architect Agent** - New specialized agent for system design decisions
+- **Summarizer Agent** - Agent for condensing and summarizing content
+- **EditableCard Component** - Reusable component for inline editing of generated content
+- **Parsing Error Modal** - User-friendly modal for handling AI response parsing errors
+- **Data Recovery Service** - Service for recovering corrupted or lost data
+- **Regex Extractor Utility** - Robust JSON extraction from LLM responses
+
+### Fixed
+- **Build Logs Not Persisting** - Logs now saved to `.personaut/{project}/build-logs.json`
+- **Build Logs Not Loading** - Logs properly restored on webview mount and visibility change
+- **Personas Not Available for Look & Feel** - Personas loaded from saved Users stage if not in message
+- **Screen Generation Missing Project Name** - Better error handling and logging for missing data
+- **TypeScript Errors** - Fixed `retainContextWhenHidden` type compatibility
+- **Test Stabilization** - Fixed ChatHandler and SettingsService test expectations
+- **Property Test Noise** - Relaxed line-length rules for JSX and prompt files
+
+### Changed
+- **Build Stage Order** - Reordered stages for clearer design funnel progression
+- **Framework Selection** - Moved to dropdown with standardized lowercase values
+- **Export Messages** - Now include comprehensive build data for thorough documentation
+- **Stage Data Flow** - Full project data passed through all stages to Finalize
+
+### Technical Improvements
+- **Message Protocol** - New message types for documentation export (`generate-task-list`, `generate-steering-document`, `export-document`, `export-all-documents`)
+- **Handler Architecture** - BuildModeHandler extended with comprehensive export handlers
+- **State Management** - FinalizeStage receives all build data for complete documentation
+- **Build Data Structure** - Unified `comprehensiveBuildData` object for exports
+
+### Developer Notes
+- FinalizeStage props now include: `projectName`, `projectTitle`, `projectDescription`, `personas`, `features`, `userStories`, `userFlows`, `screens`, `framework`, `lookAndFeel`
+- Task list generation creates tasks for: project setup (5-6 tasks), each feature, each user story, each screen, each user flow, testing (4 tasks), documentation (2 tasks)
+- All generated documents are saved to `.personaut/{project}/planning/finalize/`
+
+
 ## [0.1.4] - 2025-12-23
 
 ### Fixed

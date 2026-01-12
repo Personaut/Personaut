@@ -49,7 +49,7 @@ describe('Property 2: Project Name Validation State Update', () => {
                 fc.string({ minLength: 1, maxLength: 50 }).filter((s) => s.trim().length > 0),
                 async (projectName) => {
                     const sanitizedName = sanitizeProjectName(projectName);
-                    if (!sanitizedName) return; // Skip empty sanitized names
+                    if (!sanitizedName) {return;} // Skip empty sanitized names
 
                     const message = {
                         exists: true,
@@ -74,7 +74,7 @@ describe('Property 2: Project Name Validation State Update', () => {
                 fc.string({ minLength: 1, maxLength: 50 }).filter((s) => s.trim().length > 0),
                 async (projectName) => {
                     const sanitizedName = sanitizeProjectName(projectName);
-                    if (!sanitizedName) return; // Skip empty sanitized names
+                    if (!sanitizedName) {return;} // Skip empty sanitized names
 
                     const message = {
                         exists: false,
@@ -290,7 +290,7 @@ describe('Property 7: Stage File Path Generation', () => {
                 fc.constantFrom(...STAGE_ORDER),
                 async (projectName, stage) => {
                     const sanitized = sanitizeProjectName(projectName);
-                    if (!sanitized || !isValidProjectName(sanitized)) return;
+                    if (!sanitized || !isValidProjectName(sanitized)) {return;}
 
                     // Simulate getStageFilePath behavior
                     const baseDir = '.personaut';
@@ -327,7 +327,7 @@ describe('Property 8: Iteration Directory Path Generation', () => {
                 fc.integer({ min: 1, max: 1000 }),
                 async (projectName, iterationNumber) => {
                     const sanitized = sanitizeProjectName(projectName);
-                    if (!sanitized || !isValidProjectName(sanitized)) return;
+                    if (!sanitized || !isValidProjectName(sanitized)) {return;}
 
                     // Simulate getIterationDir behavior
                     const baseDir = '.personaut';
@@ -352,7 +352,7 @@ describe('Property 8: Iteration Directory Path Generation', () => {
                 fc.integer({ min: 1, max: 1000 }),
                 async (projectName, iterationNumber) => {
                     const sanitized = sanitizeProjectName(projectName);
-                    if (!sanitized || !isValidProjectName(sanitized)) return;
+                    if (!sanitized || !isValidProjectName(sanitized)) {return;}
 
                     const baseDir = '.personaut';
                     const iterationDir = `${baseDir}/${sanitized}/iterations/${iterationNumber}`;
@@ -377,11 +377,11 @@ describe('Property 8: Iteration Directory Path Generation', () => {
                 fc.string({ minLength: 1, maxLength: 30 }),
                 async (projectName, iterationNumber, pageName) => {
                     const sanitizedProject = sanitizeProjectName(projectName);
-                    if (!sanitizedProject || !isValidProjectName(sanitizedProject)) return;
+                    if (!sanitizedProject || !isValidProjectName(sanitizedProject)) {return;}
 
                     // Simulate getScreenshotPath behavior
                     const safeName = pageName.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
-                    if (!safeName) return;
+                    if (!safeName) {return;}
 
                     const baseDir = '.personaut';
                     const iterationDir = `${baseDir}/${sanitizedProject}/iterations/${iterationNumber}`;
@@ -426,7 +426,7 @@ describe('Property 10: Migration Backup Integrity', () => {
                     .filter((s) => /^[a-z0-9][a-z0-9-_]*$/.test(s.toLowerCase())),
                 async (projectName) => {
                     const sanitized = sanitizeProjectName(projectName);
-                    if (!sanitized || !isValidProjectName(sanitized)) return;
+                    if (!sanitized || !isValidProjectName(sanitized)) {return;}
 
                     // Old-style file patterns
                     const oldIdeaPattern = `${sanitized}.json`;
@@ -470,7 +470,7 @@ describe('Property 11: Migration Path Update', () => {
                 fc.subarray(STAGE_ORDER, { minLength: 1 }),
                 async (projectName, stages) => {
                     const sanitized = sanitizeProjectName(projectName);
-                    if (!sanitized || !isValidProjectName(sanitized)) return;
+                    if (!sanitized || !isValidProjectName(sanitized)) {return;}
 
                     // Simulate migrated paths
                     const migratedPaths: Record<string, string> = {};
@@ -497,7 +497,7 @@ describe('Property 11: Migration Path Update', () => {
                     .filter((s) => /^[a-z0-9][a-z0-9-_]*$/.test(s.toLowerCase())),
                 async (projectName) => {
                     const sanitized = sanitizeProjectName(projectName);
-                    if (!sanitized || !isValidProjectName(sanitized)) return;
+                    if (!sanitized || !isValidProjectName(sanitized)) {return;}
 
                     // Old-style patterns that should NOT be in new paths
                     const oldIdeaFile = `${sanitized}.json`; // Old idea pattern

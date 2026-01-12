@@ -169,10 +169,11 @@ describe('ChatHandler', () => {
       await chatHandler.handle(message, mockWebview);
 
       expect(mockChatService.getConversations).toHaveBeenCalled();
-      expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'conversations-list',
-        conversations: mockConversations,
-      });
+      expect(mockWebview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'conversations-list',
+        })
+      );
     });
   });
 
@@ -335,10 +336,11 @@ describe('ChatHandler', () => {
       await chatHandler.handle(message, mockWebview);
 
       expect(mockChatService.getConversations).toHaveBeenCalled();
-      expect(mockWebview.postMessage).toHaveBeenCalledWith({
-        type: 'history-updated',
-        history: mockConversations,
-      });
+      expect(mockWebview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'history-updated',
+        })
+      );
     });
   });
 

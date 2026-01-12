@@ -105,6 +105,8 @@ export interface FeedbackPersona {
     occupation: string;
     /** Short description */
     description?: string;
+    /** Persona attributes/traits */
+    attributes?: Record<string, string>;
 }
 
 /**

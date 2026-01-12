@@ -44,8 +44,8 @@ const StarRating = ({ rating }: { rating: number }) => (
  * Get rating color
  */
 const getRatingColor = (rating: number): string => {
-    if (rating >= 4) return colors.success;
-    if (rating >= 3) return colors.warning;
+    if (rating >= 4) {return colors.success;}
+    if (rating >= 3) {return colors.warning;}
     return colors.error;
 };
 

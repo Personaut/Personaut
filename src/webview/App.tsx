@@ -84,6 +84,12 @@ export default function App() {
     // Active build state (for restoration)
     const [activeBuildState, setActiveBuildState] = useState<any>(null);
 
+    // Iteration feedback state (for decision panel)
+    const [currentPage, setCurrentPage] = useState<string | null>(null);
+    const [currentPhase, setCurrentPhase] = useState<string | null>(null);
+    const [iterationFeedback, setIterationFeedback] = useState<any[]>([]);
+    const [averageRating, setAverageRating] = useState<number | null>(null);
+
     // Project history for build mode
     const [projectHistory, setProjectHistory] = useState<string[]>((savedState as any).projectHistory || []);
 
@@ -182,17 +188,19 @@ export default function App() {
                             type: 'user' as const,
                             id: p.id,
                             name: p.name,
-                            context: p.background || `${p.occupation || 'User'} - ${p.goals?.join(', ') || 'No goals specified'}`,
+                            // Use backstory for full context, with fallback to attributes summary
+                            context: p.backstory || `${p.occupation || 'User'} - ${p.goals?.join(', ') || 'No goals specified'}`,
                         }));
                         setUserPersonas(chatPersonas);
 
-                        // Also convert to FeedbackPersona format
+                        // Also convert to FeedbackPersona format (with attributes preserved)
                         const feedbackPs: FeedbackPersona[] = message.personas.map((p: any) => ({
                             id: p.id,
                             name: p.name,
                             age: p.age || '',
                             occupation: p.occupation || '',
-                            description: p.background || '',
+                            description: p.backstory || '',  // Use backstory here too
+                            attributes: p.attributes || {}, // Preserve attributes
                         }));
                         setFeedbackPersonas(feedbackPs);
                     }
@@ -214,6 +222,27 @@ export default function App() {
                         setActiveBuildState(null);
                     }
                     break;
+                case 'iteration-summary':
+                    console.log('[App] Received iteration-summary:', message);
+                    setIterationFeedback(message.feedback || []);
+                    setAverageRating(message.averageRating);
+                    setCurrentPage(message.pageId);
+                    break;
+                case 'user-decision-request':
+                    console.log('[App] Received user-decision-request:', message);
+                    setCurrentPhase('decision');
+                    setCurrentPage(message.pageId);
+                    setAverageRating(message.averageRating);
+                    break;
+                case 'iteration-phase-changed':
+                    console.log('[App] Received iteration-phase-changed:', message);
+                    setCurrentPhase(message.phase);
+                    // Clear feedback when starting a new iteration
+                    if (message.phase !== 'decision') {
+                        setIterationFeedback([]);
+                        setAverageRating(null);
+                    }
+                    break;
             }
         };
 
@@ -233,6 +262,10 @@ export default function App() {
                 vscodePostMessage({ type: 'get-token-usage' });
                 console.log('[App] Requesting active build status on visibility change');
                 vscodePostMessage({ type: 'get-active-build-status' }); // Restore build state if active
+                // Request build logs for current project if in build mode
+                if (mode === 'build' && activeBuildState?.projectName) {
+                    vscodePostMessage({ type: 'get-build-log', projectName: activeBuildState.projectName });
+                }
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -241,7 +274,7 @@ export default function App() {
             window.removeEventListener('message', handleMessage);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, []);
+    }, [mode, activeBuildState]);
 
     // Clear build logs
     const clearBuildLogs = useCallback(() => {
@@ -354,6 +387,7 @@ export default function App() {
                     age: p.age,
                     occupation: p.occupation,
                     backstory: p.description,
+                    attributes: (p as any).attributes || {}, // Include attributes for trait display
                 }));
 
                 return (
@@ -369,6 +403,17 @@ export default function App() {
                         }}
                         availablePersonas={buildPersonas}
                         activeBuildState={activeBuildState}
+                        currentPage={currentPage}
+                        currentPhase={currentPhase}
+                        iterationFeedback={iterationFeedback}
+                        averageRating={averageRating}
+                        onDecision={(decision: 'iterate' | 'next-page') => {
+                            console.log('[App] User decision:', decision);
+                            vscodePostMessage({
+                                type: 'user-decision',
+                                decision,
+                            });
+                        }}
                     />
                 );
 
@@ -445,7 +490,7 @@ export default function App() {
                             style={modeTabStyle(mode === 'build')}
                             onClick={() => { setMode('build'); setView('main'); }}
                         >
-                            Build
+                            Design
                         </button>
                     </div>
 

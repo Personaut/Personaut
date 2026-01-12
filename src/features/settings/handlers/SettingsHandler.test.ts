@@ -51,6 +51,18 @@ describe('SettingsHandler', () => {
         awsRegion: 'us-east-1',
         awsProfile: 'default',
         awsUseProfile: false,
+        build: {
+          designerModel: 'gemini-2.0-flash-exp',
+          developerModel: 'gemini-2.0-flash-exp',
+          reviewerModel: 'gemini-2.0-flash-exp',
+          summarizerModel: 'gemini-2.0-flash-exp',
+          maxIterationsPerPage: 5,
+          budgetLimit: 10,
+          budgetWarningThreshold: 0.8,
+          reviewerCount: 3,
+          enableParallelReview: true,
+          autoMoveToNextPage: false,
+        },
       };
 
       mockSettingsService.getSettings.mockResolvedValue(mockSettings);
@@ -83,6 +95,18 @@ describe('SettingsHandler', () => {
         awsRegion: 'us-east-1',
         awsProfile: 'default',
         awsUseProfile: false,
+        build: {
+          designerModel: 'gemini-2.0-flash-exp',
+          developerModel: 'gemini-2.0-flash-exp',
+          reviewerModel: 'gemini-2.0-flash-exp',
+          summarizerModel: 'gemini-2.0-flash-exp',
+          maxIterationsPerPage: 5,
+          budgetLimit: 10,
+          budgetWarningThreshold: 0.8,
+          reviewerCount: 3,
+          enableParallelReview: true,
+          autoMoveToNextPage: false,
+        },
       };
 
       mockSettingsService.getSettings.mockResolvedValue(updatedSettings);
@@ -243,6 +267,18 @@ describe('SettingsHandler', () => {
         awsRegion: 'us-east-1',
         awsProfile: 'default',
         awsUseProfile: false,
+        build: {
+          designerModel: 'gemini-2.0-flash-exp',
+          developerModel: 'gemini-2.0-flash-exp',
+          reviewerModel: 'gemini-2.0-flash-exp',
+          summarizerModel: 'gemini-2.0-flash-exp',
+          maxIterationsPerPage: 5,
+          budgetLimit: 10,
+          budgetWarningThreshold: 0.8,
+          reviewerCount: 3,
+          enableParallelReview: true,
+          autoMoveToNextPage: false,
+        },
       };
 
       mockSettingsService.getSettings.mockResolvedValue(defaultSettings);

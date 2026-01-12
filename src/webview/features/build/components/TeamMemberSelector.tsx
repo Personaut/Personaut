@@ -143,7 +143,7 @@ export function TeamMemberSelector({
     };
 
     const handleToggle = (member: TeamMember) => {
-        if (disabled || member.isMandatory) return;
+        if (disabled || member.isMandatory) {return;}
 
         const newIds = selectedIds.includes(member.id)
             ? selectedIds.filter((id) => id !== member.id)

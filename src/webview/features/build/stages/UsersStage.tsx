@@ -223,13 +223,17 @@ export function UsersStage({
         } else {
             // Add persona (if under limit)
             if (generatedPersonas.length < MAX_PERSONAS) {
+                // Extract first few traits for display
+                const traits = persona.attributes || {};
+                const traitEntries = Object.entries(traits);
+
                 const newPersona: GeneratedPersona = {
                     id: persona.id,
                     name: persona.name,
-                    age: persona.age || 'Unknown',
-                    occupation: persona.occupation || 'Unknown',
+                    age: traitEntries.find(([key]) => key.toLowerCase().includes('age'))?.[1] || 'Unknown',
+                    occupation: traitEntries.find(([key]) => key.toLowerCase().includes('occupation') || key.toLowerCase().includes('job'))?.[1] || 'Unknown',
                     backstory: persona.backstory || 'No backstory available',
-                    attributes: persona.attributes || {},
+                    attributes: traits,
                 };
                 onPersonasChange([...generatedPersonas, newPersona]);
             }
@@ -318,7 +322,12 @@ export function UsersStage({
                                                     {persona.name}
                                                 </div>
                                                 <div style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary }}>
-                                                    {persona.occupation || 'No occupation'} • {persona.age || 'Age unknown'}
+                                                    {persona.attributes && Object.keys(persona.attributes).length > 0
+                                                        ? Object.entries(persona.attributes)
+                                                            .slice(0, 2)
+                                                            .map(([key, value]) => `${key}: ${value}`)
+                                                            .join(' • ')
+                                                        : 'No traits defined'}
                                                 </div>
                                             </div>
                                         </div>
@@ -354,49 +363,97 @@ export function UsersStage({
                         Selected Personas ({generatedPersonas.length})
                     </h3>
                     <div style={personasGridStyle}>
-                        {generatedPersonas.map((persona) => (
-                            <div key={persona.id} style={personaCardStyle}>
-                                <div style={avatarStyle}>
-                                    {persona.name.charAt(0).toUpperCase()}
+                        {generatedPersonas.map((persona) => {
+                            // Truncate backstory to 150 characters
+                            const backstoryPreview = persona.backstory && persona.backstory.length > 150
+                                ? `${persona.backstory.substring(0, 150)}...`
+                                : persona.backstory || 'No backstory available';
+
+                            return (
+                                <div key={persona.id} style={personaCardStyle}>
+                                    <div style={avatarStyle}>
+                                        {persona.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div
+                                        style={{
+                                            fontSize: typography.fontSize.md,
+                                            fontWeight: typography.fontWeight.semibold,
+                                            color: colors.text.primary,
+                                            marginBottom: spacing.sm,
+                                        }}
+                                    >
+                                        {persona.name}
+                                    </div>
+
+                                    {/* Attributes as Pills */}
+                                    {persona.attributes && Object.keys(persona.attributes).length > 0 ? (
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                flexWrap: 'wrap',
+                                                gap: spacing.xs,
+                                                marginBottom: spacing.md,
+                                            }}
+                                        >
+                                            {Object.entries(persona.attributes).map(([key, value]) => (
+                                                <div
+                                                    key={key}
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        padding: `${spacing.xs} ${spacing.sm}`,
+                                                        backgroundColor: 'rgba(255, 191, 36, 0.15)',
+                                                        border: `1px solid rgba(255, 191, 36, 0.3)`,
+                                                        borderRadius: borderRadius.full,
+                                                        fontSize: typography.fontSize.xs,
+                                                    }}
+                                                >
+                                                    <span style={{ color: colors.text.secondary, fontWeight: typography.fontWeight.medium }}>
+                                                        {key}:
+                                                    </span>
+                                                    <span style={{ color: colors.text.primary, fontWeight: typography.fontWeight.semibold }}>
+                                                        {value}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div
+                                            style={{
+                                                fontSize: typography.fontSize.sm,
+                                                color: colors.text.muted,
+                                                fontStyle: 'italic',
+                                                marginBottom: spacing.md,
+                                            }}
+                                        >
+                                            No traits defined
+                                        </div>
+                                    )}
+
+                                    {/* Backstory Preview */}
+                                    <p
+                                        style={{
+                                            fontSize: typography.fontSize.sm,
+                                            color: colors.text.secondary,
+                                            lineHeight: typography.lineHeight.relaxed,
+                                            marginBottom: spacing.md,
+                                            fontStyle: 'italic',
+                                        }}
+                                    >
+                                        "{backstoryPreview}"
+                                    </p>
+
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleRemovePersona(persona.id)}
+                                    >
+                                        Remove
+                                    </Button>
                                 </div>
-                                <div
-                                    style={{
-                                        fontSize: typography.fontSize.md,
-                                        fontWeight: typography.fontWeight.semibold,
-                                        color: colors.text.primary,
-                                        marginBottom: spacing.xs,
-                                    }}
-                                >
-                                    {persona.name}
-                                </div>
-                                <div
-                                    style={{
-                                        fontSize: typography.fontSize.sm,
-                                        color: colors.text.secondary,
-                                        marginBottom: spacing.sm,
-                                    }}
-                                >
-                                    {persona.age} • {persona.occupation}
-                                </div>
-                                <p
-                                    style={{
-                                        fontSize: typography.fontSize.sm,
-                                        color: colors.text.secondary,
-                                        lineHeight: typography.lineHeight.relaxed,
-                                        marginBottom: spacing.md,
-                                    }}
-                                >
-                                    {persona.backstory}
-                                </p>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleRemovePersona(persona.id)}
-                                >
-                                    Remove
-                                </Button>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}

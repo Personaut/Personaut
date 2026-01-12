@@ -29,6 +29,15 @@ import {
   AgentErrorType,
   wrapAsAgentError,
 } from '../../shared/types/AgentErrorTypes';
+import { AgentFactory } from './AgentFactory';
+import { DesignerAgent } from './build/DesignerAgent';
+import { DeveloperAgent } from './build/DeveloperAgent';
+import { SummarizerAgent, SummarizerAgentOptions } from './build/SummarizerAgent';
+import { ReviewerAgent } from './feedback/ReviewerAgent';
+import {
+  DeveloperAgentOptions,
+  ReviewerAgentOptions,
+} from './AgentTypes';
 
 /**
  * Configuration for AgentManager initialization
@@ -188,6 +197,29 @@ export class AgentManager {
         this.config.tokenStorageService,
         this.config.tokenMonitor // Pass token monitor for usage tracking
       );
+
+      // Load existing conversation history from disk if it exists
+      // This ensures conversation context is preserved across agent reinitializations
+      try {
+        const existingConversation = this.config.conversationManager.getConversation(conversationId);
+        if (existingConversation && existingConversation.messages.length > 0) {
+          console.log('[AgentManager] Loading existing conversation history:', {
+            conversationId,
+            messageCount: existingConversation.messages.length,
+          });
+          await agent.loadHistory(existingConversation.messages);
+        } else {
+          console.log('[AgentManager] No existing conversation history found:', {
+            conversationId,
+          });
+        }
+      } catch (error: any) {
+        // Log error but don't fail agent creation - agent can still function with empty history
+        console.warn('[AgentManager] Failed to load conversation history (agent will start with empty history):', {
+          conversationId,
+          error: error.message,
+        });
+      }
 
       // Register agent with message queue
       this.agents.set(conversationId, {
@@ -544,6 +576,246 @@ export class AgentManager {
     });
 
     return true;
+  }
+
+  /**
+   * Create a DesignerAgent for UX/UI design
+   * Delegates to AgentFactory and registers the agent in the registry
+   * 
+   * @param conversationId - Unique identifier for the conversation
+   * @returns DesignerAgent instance
+   * @throws AgentError if agent creation fails
+   * 
+   * Validates: Requirements AC-10.3
+   */
+  async createDesignerAgent(conversationId: string): Promise<DesignerAgent> {
+    console.log('[AgentManager] Creating DesignerAgent:', { conversationId });
+
+    try {
+      // Enforce agent limit before creating new agent
+      await this.enforceAgentLimit();
+
+      // Create agent using factory
+      const agent = AgentFactory.createDesignerAgent(
+        conversationId,
+        this.config.webview,
+        this.config.tokenStorageService,
+        this.config.tokenMonitor,
+        (messages) => this.onDidUpdateMessages(conversationId, messages)
+      );
+
+      // Register in existing registry
+      this.agents.set(conversationId, {
+        agent: agent as unknown as Agent,
+        createdAt: Date.now(),
+        lastAccess: Date.now(),
+        mode: 'build',
+        messageQueue: [],
+        isProcessing: false,
+      });
+
+      console.log('[AgentManager] DesignerAgent created and registered:', {
+        conversationId,
+        totalAgents: this.agents.size,
+      });
+
+      return agent;
+    } catch (error: any) {
+      const agentError = wrapAsAgentError(
+        error,
+        AgentErrorType.CREATION_FAILED,
+        conversationId
+      );
+      console.error('[AgentManager] Failed to create DesignerAgent:', agentError.toJSON());
+      throw agentError;
+    }
+  }
+
+  /**
+   * Create a DeveloperAgent for framework-specific code generation
+   * Delegates to AgentFactory and registers the agent in the registry
+   * 
+   * @param conversationId - Unique identifier for the conversation
+   * @param options - Developer agent configuration (framework, project path, etc.)
+   * @returns DeveloperAgent instance
+   * @throws AgentError if agent creation fails
+   * 
+   * Validates: Requirements AC-10.3
+   */
+  async createDeveloperAgent(
+    conversationId: string,
+    options: DeveloperAgentOptions
+  ): Promise<DeveloperAgent> {
+    console.log('[AgentManager] Creating DeveloperAgent:', {
+      conversationId,
+      framework: options.framework,
+    });
+
+    try {
+      // Enforce agent limit before creating new agent
+      await this.enforceAgentLimit();
+
+      // Create agent using factory
+      const agent = AgentFactory.createDeveloperAgent(
+        conversationId,
+        this.config.webview,
+        this.config.tokenStorageService,
+        this.config.tokenMonitor,
+        (messages) => this.onDidUpdateMessages(conversationId, messages),
+        options
+      );
+
+      // Register in existing registry
+      this.agents.set(conversationId, {
+        agent: agent as unknown as Agent,
+        createdAt: Date.now(),
+        lastAccess: Date.now(),
+        mode: 'build',
+        messageQueue: [],
+        isProcessing: false,
+      });
+
+      console.log('[AgentManager] DeveloperAgent created and registered:', {
+        conversationId,
+        framework: options.framework,
+        totalAgents: this.agents.size,
+      });
+
+      return agent;
+    } catch (error: any) {
+      const agentError = wrapAsAgentError(
+        error,
+        AgentErrorType.CREATION_FAILED,
+        conversationId
+      );
+      console.error('[AgentManager] Failed to create DeveloperAgent:', agentError.toJSON());
+      throw agentError;
+    }
+  }
+
+  /**
+   * Create a ReviewerAgent for persona-based feedback
+   * Delegates to AgentFactory and registers the agent in the registry
+   * 
+   * @param conversationId - Unique identifier for the conversation
+   * @param options - Reviewer agent configuration (persona name, rating system)
+   * @returns ReviewerAgent instance
+   * @throws AgentError if agent creation fails
+   * 
+   * Validates: Requirements AC-10.3
+   */
+  async createReviewerAgent(
+    conversationId: string,
+    options: ReviewerAgentOptions
+  ): Promise<ReviewerAgent> {
+    console.log('[AgentManager] Creating ReviewerAgent:', {
+      conversationId,
+      personaName: options.personaName,
+    });
+
+    try {
+      // Enforce agent limit before creating new agent
+      await this.enforceAgentLimit();
+
+      // Create agent using factory
+      const agent = AgentFactory.createReviewerAgent(
+        conversationId,
+        this.config.webview,
+        this.config.tokenStorageService,
+        this.config.tokenMonitor,
+        (messages) => this.onDidUpdateMessages(conversationId, messages),
+        options
+      );
+
+      // Register in existing registry
+      this.agents.set(conversationId, {
+        agent: agent as unknown as Agent,
+        createdAt: Date.now(),
+        lastAccess: Date.now(),
+        mode: 'feedback',
+        messageQueue: [],
+        isProcessing: false,
+      });
+
+      console.log('[AgentManager] ReviewerAgent created and registered:', {
+        conversationId,
+        personaName: options.personaName,
+        totalAgents: this.agents.size,
+      });
+
+      return agent;
+    } catch (error: any) {
+      const agentError = wrapAsAgentError(
+        error,
+        AgentErrorType.CREATION_FAILED,
+        conversationId
+      );
+      console.error('[AgentManager] Failed to create ReviewerAgent:', agentError.toJSON());
+      throw agentError;
+    }
+  }
+
+  /**
+   * Create a SummarizerAgent for context compression and summarization
+   * Delegates to AgentFactory and registers the agent in the registry
+   * 
+   * @param conversationId - Unique identifier for the conversation
+   * @param options - Summarizer agent configuration (model, maxOutputTokens)
+   * @returns SummarizerAgent instance
+   * @throws AgentError if agent creation fails
+   * 
+   * Validates: Requirements AC-11.5
+   */
+  async createSummarizerAgent(
+    conversationId: string,
+    options?: SummarizerAgentOptions
+  ): Promise<SummarizerAgent> {
+    console.log('[AgentManager] Creating SummarizerAgent:', {
+      conversationId,
+      model: options?.model || 'default',
+      maxOutputTokens: options?.maxOutputTokens || 1500,
+    });
+
+    try {
+      // Enforce agent limit before creating new agent
+      await this.enforceAgentLimit();
+
+      // Create agent using factory
+      const agent = AgentFactory.createSummarizerAgent(
+        conversationId,
+        this.config.webview,
+        this.config.tokenStorageService,
+        this.config.tokenMonitor,
+        (messages) => this.onDidUpdateMessages(conversationId, messages),
+        options
+      );
+
+      // Register in existing registry
+      this.agents.set(conversationId, {
+        agent: agent as unknown as Agent,
+        createdAt: Date.now(),
+        lastAccess: Date.now(),
+        mode: 'build',
+        messageQueue: [],
+        isProcessing: false,
+      });
+
+      console.log('[AgentManager] SummarizerAgent created and registered:', {
+        conversationId,
+        model: options?.model || 'default',
+        totalAgents: this.agents.size,
+      });
+
+      return agent;
+    } catch (error: any) {
+      const agentError = wrapAsAgentError(
+        error,
+        AgentErrorType.CREATION_FAILED,
+        conversationId
+      );
+      console.error('[AgentManager] Failed to create SummarizerAgent:', agentError.toJSON());
+      throw agentError;
+    }
   }
 
   /**

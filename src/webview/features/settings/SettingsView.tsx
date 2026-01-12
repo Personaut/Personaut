@@ -20,13 +20,19 @@ import { Button } from '../../shared/components/ui';
 type ApiProvider = 'gemini' | 'bedrock';
 type ThemeOption = 'dark' | 'match-ide' | 'personaut';
 type OutputFormat = 'markdown' | 'json';
-type SettingsSection = 'general' | 'provider' | 'chat' | 'artifacts' | 'data' | 'about';
+type SettingsSection = 'general' | 'provider' | 'chat' | 'artifacts' | 'build' | 'data' | 'about';
 
 export interface Settings {
   provider: ApiProvider;
   theme: ThemeOption;
   geminiApiKey: string;
   geminiModel: string;
+  geminiSafetySettings: {
+    harassment: string;
+    hateSpeech: string;
+    sexuallyExplicit: string;
+    dangerousContent: string;
+  };
   openaiApiKey: string;
   // AWS Bedrock
   awsAccessKey: string;
@@ -56,6 +62,19 @@ export interface Settings {
   // Chat settings
   userMessageColor: string;
   agentMessageColor: string;
+  // Build settings
+  build: {
+    designerModel: string;
+    developerModel: string;
+    reviewerModel: string;
+    summarizerModel: string;
+    maxIterationsPerPage: number;
+    budgetLimit: number; // USD
+    budgetWarningThreshold: number; // 0-1 (e.g., 0.8 = 80%)
+    reviewerCount: number;
+    enableParallelReview: boolean;
+    autoMoveToNextPage: boolean;
+  };
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -63,6 +82,12 @@ const DEFAULT_SETTINGS: Settings = {
   theme: 'match-ide',
   geminiApiKey: '',
   geminiModel: 'gemini-2.5-flash',
+  geminiSafetySettings: {
+    harassment: 'BLOCK_MEDIUM_AND_ABOVE',
+    hateSpeech: 'BLOCK_MEDIUM_AND_ABOVE',
+    sexuallyExplicit: 'BLOCK_MEDIUM_AND_ABOVE',
+    dangerousContent: 'BLOCK_MEDIUM_AND_ABOVE',
+  },
   openaiApiKey: '',
   awsAccessKey: '',
   awsSecretKey: '',
@@ -87,6 +112,18 @@ const DEFAULT_SETTINGS: Settings = {
   autoExecute: true,
   userMessageColor: '#3b82f6',
   agentMessageColor: '#10b981',
+  build: {
+    designerModel: 'gemini-2.5-flash',
+    developerModel: 'gemini-2.5-flash',
+    reviewerModel: 'gemini-2.5-flash',
+    summarizerModel: 'gemini-2.5-flash',
+    maxIterationsPerPage: 5,
+    budgetLimit: 10.0,
+    budgetWarningThreshold: 0.8,
+    reviewerCount: 3,
+    enableParallelReview: true,
+    autoMoveToNextPage: false,
+  },
 };
 
 /**
@@ -425,6 +462,11 @@ export function SettingsView({ onSettingsChanged, postMessage }: SettingsViewPro
         <line x1="12" y1="22.08" x2="12" y2="12" />
       </svg>
     ),
+    build: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+      </svg>
+    ),
     data: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <ellipse cx="12" cy="5" rx="9" ry="3" />
@@ -446,6 +488,7 @@ export function SettingsView({ onSettingsChanged, postMessage }: SettingsViewPro
     { id: 'provider', label: 'AI Provider' },
     { id: 'chat', label: 'Chat' },
     { id: 'artifacts', label: 'Artifacts' },
+    { id: 'build', label: 'Build' },
     { id: 'data', label: 'Data' },
     { id: 'about', label: 'About' },
   ];
@@ -628,6 +671,158 @@ export function SettingsView({ onSettingsChanged, postMessage }: SettingsViewPro
                       <option value="gemini-1.0-pro">Gemini 1.0 Pro</option>
                     </optgroup>
                   </select>
+                </div>
+
+                {/* Safety Settings */}
+                <div style={{ marginTop: spacing.xl }}>
+                  <label style={{
+                    fontSize: typography.fontSize.sm,
+                    color: colors.text.secondary,
+                    display: 'block',
+                    marginBottom: spacing.md,
+                    fontWeight: typography.fontWeight.semibold,
+                  }}>
+                    Safety Settings
+                  </label>
+                  <p style={{
+                    fontSize: typography.fontSize.xs,
+                    color: colors.text.muted,
+                    marginBottom: spacing.md
+                  }}>
+                    Configure content filtering thresholds for Gemini AI responses
+                  </p>
+
+                  {/* Harassment */}
+                  <div style={{ marginBottom: spacing.md }}>
+                    <label style={{
+                      fontSize: typography.fontSize.xs,
+                      color: colors.text.secondary,
+                      display: 'block',
+                      marginBottom: spacing.xs,
+                    }}>
+                      Harassment
+                    </label>
+                    <select
+                      value={settings.geminiSafetySettings.harassment}
+                      onChange={e => updateSetting('geminiSafetySettings', {
+                        ...settings.geminiSafetySettings,
+                        harassment: e.target.value
+                      })}
+                      style={{
+                        width: '100%',
+                        padding: `${spacing.sm} ${spacing.md}`,
+                        backgroundColor: colors.background.tertiary,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: borderRadius.lg,
+                        color: colors.text.primary,
+                        fontSize: typography.fontSize.sm,
+                      }}
+                    >
+                      <option value="BLOCK_NONE">Block None</option>
+                      <option value="BLOCK_ONLY_HIGH">Block Only High</option>
+                      <option value="BLOCK_MEDIUM_AND_ABOVE">Block Medium and Above</option>
+                      <option value="BLOCK_LOW_AND_ABOVE">Block Low and Above</option>
+                    </select>
+                  </div>
+
+                  {/* Hate Speech */}
+                  <div style={{ marginBottom: spacing.md }}>
+                    <label style={{
+                      fontSize: typography.fontSize.xs,
+                      color: colors.text.secondary,
+                      display: 'block',
+                      marginBottom: spacing.xs,
+                    }}>
+                      Hate Speech
+                    </label>
+                    <select
+                      value={settings.geminiSafetySettings.hateSpeech}
+                      onChange={e => updateSetting('geminiSafetySettings', {
+                        ...settings.geminiSafetySettings,
+                        hateSpeech: e.target.value
+                      })}
+                      style={{
+                        width: '100%',
+                        padding: `${spacing.sm} ${spacing.md}`,
+                        backgroundColor: colors.background.tertiary,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: borderRadius.lg,
+                        color: colors.text.primary,
+                        fontSize: typography.fontSize.sm,
+                      }}
+                    >
+                      <option value="BLOCK_NONE">Block None</option>
+                      <option value="BLOCK_ONLY_HIGH">Block Only High</option>
+                      <option value="BLOCK_MEDIUM_AND_ABOVE">Block Medium and Above</option>
+                      <option value="BLOCK_LOW_AND_ABOVE">Block Low and Above</option>
+                    </select>
+                  </div>
+
+                  {/* Sexually Explicit */}
+                  <div style={{ marginBottom: spacing.md }}>
+                    <label style={{
+                      fontSize: typography.fontSize.xs,
+                      color: colors.text.secondary,
+                      display: 'block',
+                      marginBottom: spacing.xs,
+                    }}>
+                      Sexually Explicit
+                    </label>
+                    <select
+                      value={settings.geminiSafetySettings.sexuallyExplicit}
+                      onChange={e => updateSetting('geminiSafetySettings', {
+                        ...settings.geminiSafetySettings,
+                        sexuallyExplicit: e.target.value
+                      })}
+                      style={{
+                        width: '100%',
+                        padding: `${spacing.sm} ${spacing.md}`,
+                        backgroundColor: colors.background.tertiary,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: borderRadius.lg,
+                        color: colors.text.primary,
+                        fontSize: typography.fontSize.sm,
+                      }}
+                    >
+                      <option value="BLOCK_NONE">Block None</option>
+                      <option value="BLOCK_ONLY_HIGH">Block Only High</option>
+                      <option value="BLOCK_MEDIUM_AND_ABOVE">Block Medium and Above</option>
+                      <option value="BLOCK_LOW_AND_ABOVE">Block Low and Above</option>
+                    </select>
+                  </div>
+
+                  {/* Dangerous Content */}
+                  <div style={{ marginBottom: spacing.md }}>
+                    <label style={{
+                      fontSize: typography.fontSize.xs,
+                      color: colors.text.secondary,
+                      display: 'block',
+                      marginBottom: spacing.xs,
+                    }}>
+                      Dangerous Content
+                    </label>
+                    <select
+                      value={settings.geminiSafetySettings.dangerousContent}
+                      onChange={e => updateSetting('geminiSafetySettings', {
+                        ...settings.geminiSafetySettings,
+                        dangerousContent: e.target.value
+                      })}
+                      style={{
+                        width: '100%',
+                        padding: `${spacing.sm} ${spacing.md}`,
+                        backgroundColor: colors.background.tertiary,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: borderRadius.lg,
+                        color: colors.text.primary,
+                        fontSize: typography.fontSize.sm,
+                      }}
+                    >
+                      <option value="BLOCK_NONE">Block None</option>
+                      <option value="BLOCK_ONLY_HIGH">Block Only High</option>
+                      <option value="BLOCK_MEDIUM_AND_ABOVE">Block Medium and Above</option>
+                      <option value="BLOCK_LOW_AND_ABOVE">Block Low and Above</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             )}
@@ -964,6 +1159,261 @@ export function SettingsView({ onSettingsChanged, postMessage }: SettingsViewPro
               </select>
             </div>
           </div>
+        );
+
+      case 'build':
+        return (
+          <>
+            <div style={cardStyle}>
+              <SectionHeader title="Agent Models" description="Configure which models to use for each agent type" />
+
+              <div style={{ marginBottom: spacing.lg }}>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.sm, fontWeight: typography.fontWeight.medium }}>
+                  Designer Model
+                </label>
+                <select
+                  value={settings.build.designerModel}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, designerModel: e.target.value } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                >
+                  <optgroup label="Gemini 2.5">
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Best Quality)</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                  </optgroup>
+                  <optgroup label="Gemini 2.0">
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  </optgroup>
+                </select>
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  Creates UX specifications for each page
+                </p>
+              </div>
+
+              <div style={{ marginBottom: spacing.lg }}>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.sm, fontWeight: typography.fontWeight.medium }}>
+                  Developer Model
+                </label>
+                <select
+                  value={settings.build.developerModel}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, developerModel: e.target.value } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                >
+                  <optgroup label="Gemini 2.5">
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Best Quality)</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                  </optgroup>
+                  <optgroup label="Gemini 2.0">
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  </optgroup>
+                </select>
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  Generates code from UX specifications
+                </p>
+              </div>
+
+              <div style={{ marginBottom: spacing.lg }}>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.sm, fontWeight: typography.fontWeight.medium }}>
+                  Reviewer Model
+                </label>
+                <select
+                  value={settings.build.reviewerModel}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, reviewerModel: e.target.value } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                >
+                  <optgroup label="Gemini 2.5">
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Best Quality)</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                  </optgroup>
+                  <optgroup label="Gemini 2.0">
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  </optgroup>
+                </select>
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  Reviews generated code and provides feedback
+                </p>
+              </div>
+
+              <div>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.sm, fontWeight: typography.fontWeight.medium }}>
+                  Summarizer Model
+                </label>
+                <select
+                  value={settings.build.summarizerModel}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, summarizerModel: e.target.value } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                >
+                  <optgroup label="Gemini 2.5">
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                    <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  </optgroup>
+                  <optgroup label="Gemini 2.0">
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                  </optgroup>
+                </select>
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  Compresses iteration history to save context
+                </p>
+              </div>
+            </div>
+
+            <div style={cardStyle}>
+              <SectionHeader title="Budget & Limits" description="Control costs and iteration limits" />
+
+              <div style={{ marginBottom: spacing.lg }}>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.xs }}>
+                  Budget Limit (USD)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={settings.build.budgetLimit}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, budgetLimit: parseFloat(e.target.value) || 10 } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                />
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  Maximum budget for the entire build workflow
+                </p>
+              </div>
+
+              <div style={{ marginBottom: spacing.lg }}>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.xs }}>
+                  Budget Warning Threshold (%)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={Math.round(settings.build.budgetWarningThreshold * 100)}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, budgetWarningThreshold: (parseInt(e.target.value) || 80) / 100 } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                />
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  Show warning when budget usage reaches this percentage
+                </p>
+              </div>
+
+              <div>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.xs }}>
+                  Max Iterations Per Page
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={settings.build.maxIterationsPerPage}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, maxIterationsPerPage: parseInt(e.target.value) || 5 } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                />
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  Maximum number of iterations before moving to next page
+                </p>
+              </div>
+            </div>
+
+            <div style={cardStyle}>
+              <SectionHeader title="Reviewer Configuration" description="Configure code review settings" />
+
+              <div style={{ marginBottom: spacing.lg }}>
+                <label style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, display: 'block', marginBottom: spacing.xs }}>
+                  Number of Reviewers
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={settings.build.reviewerCount}
+                  onChange={e => setSettings(prev => ({ ...prev, build: { ...prev.build, reviewerCount: parseInt(e.target.value) || 3 } }))}
+                  style={{
+                    width: '100%',
+                    padding: `${spacing.sm} ${spacing.md}`,
+                    backgroundColor: colors.background.tertiary,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: borderRadius.lg,
+                    color: colors.text.primary,
+                    fontSize: typography.fontSize.sm,
+                  }}
+                />
+                <p style={{ fontSize: typography.fontSize.xs, color: colors.text.muted, marginTop: spacing.xs }}>
+                  How many reviewer agents to run per iteration
+                </p>
+              </div>
+
+              <Toggle
+                checked={settings.build.enableParallelReview}
+                onChange={v => setSettings(prev => ({ ...prev, build: { ...prev.build, enableParallelReview: v } }))}
+                label="Enable Parallel Review"
+                description="Run reviewers in parallel for faster feedback (respects rate limits)"
+              />
+            </div>
+
+            <div style={cardStyle}>
+              <SectionHeader title="Workflow Options" description="Configure build workflow behavior" />
+
+              <Toggle
+                checked={settings.build.autoMoveToNextPage}
+                onChange={v => setSettings(prev => ({ ...prev, build: { ...prev.build, autoMoveToNextPage: v } }))}
+                label="Auto Move to Next Page"
+                description="Automatically proceed to next page after successful iteration (not recommended)"
+              />
+            </div>
+          </>
         );
 
       case 'data':

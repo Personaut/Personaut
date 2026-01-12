@@ -3,6 +3,7 @@ import { useVSCode } from '../../../shared/hooks/useVSCode';
 import {
     BuildState,
     BuildStage,
+    DesignStage,
     BuildData,
     GeneratedPersona,
     GeneratedFeature,
@@ -12,7 +13,7 @@ import {
     Framework,
     SurveyResponse,
     INITIAL_BUILD_STATE,
-    BUILD_STAGES,
+    DESIGN_STAGES,
 } from '../types';
 
 /**
@@ -189,6 +190,17 @@ export function useBuildState(): UseBuildStateReturn {
         devFlowOrder,
     ]);
 
+    // Request build state from disk on mount (if project exists)
+    useEffect(() => {
+        if (projectName) {
+            console.log('[useBuildState] Requesting build state from disk for:', projectName);
+            postMessage({
+                type: 'get-build-state',
+                projectName
+            });
+        }
+    }, []); // Only on mount - projectName in deps would cause loops
+
     // Handle messages from extension
     useEffect(() => {
         const unsubscribe = onMessage((message: any) => {
@@ -221,6 +233,42 @@ export function useBuildState(): UseBuildStateReturn {
                     setGeneratedScreensInternal(message.screens || []);
                     setIsLoadingInternal(false);
                     break;
+                case 'build-state':
+                    // Load build state from disk (not memory)
+                    if (message.buildState) {
+                        console.log('[useBuildState] Received build-state from disk:', message.buildState);
+                        const state = message.buildState;
+
+                        // Update all state from disk
+                        if (state.completedStages) {
+                            setCompletedStages(state.completedStages);
+                        }
+                        if (state.currentStage) {
+                            setCurrentStageInternal(state.currentStage);
+                        }
+                        if (state.projectName) {
+                            setProjectNameInternal(state.projectName);
+                        }
+                        if (state.projectTitle) {
+                            setProjectTitleInternal(state.projectTitle);
+                        }
+                        if (state.codeFolderName) {
+                            setCodeFolderNameInternal(state.codeFolderName);
+                        }
+
+                        console.log('[useBuildState] Build state loaded from disk - completed stages:', state.completedStages);
+                    }
+                    break;
+                case 'project-not-found':
+                    // Files deleted from disk - clear stale memory state
+                    console.log('[useBuildState] Project not found on disk, clearing stale state');
+                    setCompletedStages([]);
+                    setCurrentStageInternal('idea');
+                    setProjectNameInternal('');
+                    setProjectTitleInternal('');
+                    setCodeFolderNameInternal('');
+                    setBuildDataInternal(INITIAL_BUILD_STATE.buildData);
+                    break;
                 case 'build-stopping':
                     setIsStopping(true);
                     break;
@@ -244,15 +292,33 @@ export function useBuildState(): UseBuildStateReturn {
     // Handle loaded stage data
     const handleStageDataLoaded = useCallback((stage: BuildStage, data: unknown) => {
         switch (stage) {
+            case 'idea':
+                if (data && typeof data === 'object') {
+                    const d = data as any;
+                    // Extract nested data property if it exists
+                    const actualData = d.data || d;
+                    console.log('[useBuildState] Loading idea data:', actualData);
+                    // Load project name and description
+                    if (actualData.projectName) { setProjectNameInternal(actualData.projectName); }
+                    if (actualData.projectTitle) { setProjectTitleInternal(actualData.projectTitle); }
+                    if (actualData.codeFolderName) { setCodeFolderNameInternal(actualData.codeFolderName); }
+                    if (actualData.projectDescription) {
+                        setBuildDataInternal((prev: any) => ({
+                            ...prev,
+                            projectDescription: actualData.projectDescription
+                        }));
+                    }
+                }
+                break;
             case 'users':
                 if (data && typeof data === 'object') {
                     const d = data as any;
                     // Extract nested data property if it exists
                     const actualData = d.data || d;
                     // Check for both 'personas' and 'generatedPersonas'
-                    if (actualData.personas) setGeneratedPersonasInternal(actualData.personas);
-                    else if (actualData.generatedPersonas) setGeneratedPersonasInternal(actualData.generatedPersonas);
-                    if (actualData.buildPersonas) setBuildPersonasInternal(actualData.buildPersonas);
+                    if (actualData.personas) { setGeneratedPersonasInternal(actualData.personas); }
+                    else if (actualData.generatedPersonas) { setGeneratedPersonasInternal(actualData.generatedPersonas); }
+                    if (actualData.buildPersonas) { setBuildPersonasInternal(actualData.buildPersonas); }
                 }
                 break;
             case 'features':
@@ -261,9 +327,9 @@ export function useBuildState(): UseBuildStateReturn {
                     // Extract nested data property if it exists
                     const actualData = d.data || d;
                     // Check for both 'features' and 'generatedFeatures'
-                    if (actualData.features) setGeneratedFeaturesInternal(actualData.features);
-                    else if (actualData.generatedFeatures) setGeneratedFeaturesInternal(actualData.generatedFeatures);
-                    if (actualData.surveyResponses) setSurveyResponsesInternal(actualData.surveyResponses);
+                    if (actualData.features) { setGeneratedFeaturesInternal(actualData.features); }
+                    else if (actualData.generatedFeatures) { setGeneratedFeaturesInternal(actualData.generatedFeatures); }
+                    if (actualData.surveyResponses) { setSurveyResponsesInternal(actualData.surveyResponses); }
                 }
                 break;
             case 'stories':
@@ -274,9 +340,9 @@ export function useBuildState(): UseBuildStateReturn {
                     // Extract nested data property if it exists
                     const actualData = d.data || d;
                     // Check if stories are nested in an object
-                    if (Array.isArray(actualData)) setUserStoriesInternal(actualData);
-                    else if (Array.isArray(actualData.stories)) setUserStoriesInternal(actualData.stories);
-                    else if (Array.isArray(actualData.userStories)) setUserStoriesInternal(actualData.userStories);
+                    if (Array.isArray(actualData)) { setUserStoriesInternal(actualData); }
+                    else if (Array.isArray(actualData.stories)) { setUserStoriesInternal(actualData.stories); }
+                    else if (Array.isArray(actualData.userStories)) { setUserStoriesInternal(actualData.userStories); }
                 }
                 break;
             case 'design':
@@ -293,30 +359,24 @@ export function useBuildState(): UseBuildStateReturn {
                         hasFramework: !!actualData.framework,
                         hasSelectedFramework: !!actualData.selectedFramework,
                     });
-                    if (actualData.userFlows) setUserFlowsInternal(actualData.userFlows);
+                    if (actualData.userFlows) { setUserFlowsInternal(actualData.userFlows); }
                     // Check for both 'pages' (new) and 'generatedScreens' (legacy)
-                    if (actualData.pages) setGeneratedScreensInternal(actualData.pages);
-                    else if (actualData.generatedScreens) setGeneratedScreensInternal(actualData.generatedScreens);
-                    if (actualData.framework) setSelectedFrameworkInternal(actualData.framework);
-                    else if (actualData.selectedFramework) setSelectedFrameworkInternal(actualData.selectedFramework);
+                    if (actualData.pages) { setGeneratedScreensInternal(actualData.pages); }
+                    else if (actualData.generatedScreens) { setGeneratedScreensInternal(actualData.generatedScreens); }
+                    if (actualData.framework) { setSelectedFrameworkInternal(actualData.framework); }
+                    else if (actualData.selectedFramework) { setSelectedFrameworkInternal(actualData.selectedFramework); }
                 }
                 break;
-            case 'building':
-                console.log('[useBuildState] Loading building data:', data);
+            case 'finalize':
+                console.log('[useBuildState] Loading finalize data:', data);
                 if (data && typeof data === 'object') {
                     const d = data as any;
                     const actualData = d.data || d;
-                    console.log('[useBuildState] Building data properties:', {
-                        hasIsPaused: actualData.isPaused !== undefined,
-                        isPaused: actualData.isPaused,
+                    console.log('[useBuildState] Finalize data properties:', {
                         hasScreens: !!actualData.screens,
                         screenCount: actualData.screens?.length,
                         hasFramework: !!actualData.framework,
                     });
-                    // Load isPaused state from file
-                    if (actualData.isPaused !== undefined) {
-                        setIsPaused(actualData.isPaused);
-                    }
                     // Load screens from file
                     if (actualData.screens) {
                         setGeneratedScreensInternal(actualData.screens);
@@ -349,22 +409,22 @@ export function useBuildState(): UseBuildStateReturn {
     }, [postMessage, projectName]);
 
     const goToNextStage = useCallback(() => {
-        const currentIndex = BUILD_STAGES.indexOf(currentStage);
-        if (currentIndex < BUILD_STAGES.length - 1) {
-            setCurrentStage(BUILD_STAGES[currentIndex + 1]);
+        const currentIndex = DESIGN_STAGES.indexOf(currentStage as DesignStage);
+        if (currentIndex < DESIGN_STAGES.length - 1) {
+            setCurrentStage(DESIGN_STAGES[currentIndex + 1]);
         }
     }, [currentStage, setCurrentStage]);
 
     const goToPreviousStage = useCallback(() => {
-        const currentIndex = BUILD_STAGES.indexOf(currentStage);
+        const currentIndex = DESIGN_STAGES.indexOf(currentStage as DesignStage);
         if (currentIndex > 0) {
-            setCurrentStage(BUILD_STAGES[currentIndex - 1]);
+            setCurrentStage(DESIGN_STAGES[currentIndex - 1]);
         }
     }, [currentStage, setCurrentStage]);
 
     const markStageComplete = useCallback((stage: BuildStage) => {
         setCompletedStages((prev) => {
-            if (prev.includes(stage)) return prev;
+            if (prev.includes(stage)) { return prev; }
             return [...prev, stage];
         });
     }, []);
@@ -376,15 +436,15 @@ export function useBuildState(): UseBuildStateReturn {
 
     const canNavigateToStage = useCallback(
         (stage: BuildStage) => {
-            const targetIndex = BUILD_STAGES.indexOf(stage);
-            const currentIndex = BUILD_STAGES.indexOf(currentStage);
+            const targetIndex = DESIGN_STAGES.indexOf(stage as DesignStage);
+            const currentIndex = DESIGN_STAGES.indexOf(currentStage as DesignStage);
 
             // Can always go backwards
-            if (targetIndex <= currentIndex) return true;
+            if (targetIndex <= currentIndex) { return true; }
 
             // Can only go forward if all previous stages are complete
             for (let i = 0; i < targetIndex; i++) {
-                if (!completedStages.includes(BUILD_STAGES[i])) return false;
+                if (!completedStages.includes(DESIGN_STAGES[i])) { return false; }
             }
             return true;
         },
@@ -559,7 +619,7 @@ export function useBuildState(): UseBuildStateReturn {
         () => ({
             currentIteration: 0,
             totalIterations: 0,
-            isComplete: completedStages.length === BUILD_STAGES.length,
+            isComplete: completedStages.length === DESIGN_STAGES.length,
             isStopping,
             isPaused,
         }),

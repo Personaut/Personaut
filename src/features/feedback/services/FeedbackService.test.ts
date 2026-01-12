@@ -64,12 +64,12 @@ describe('FeedbackService', () => {
 
       expect(result.success).toBe(true);
       expect(result.entry).toBeDefined();
-      expect(result.entry.personaNames).toEqual(['Alice', 'Bob']);
-      expect(result.entry.context).toBe('Testing the login page');
-      expect(result.entry.url).toBe('https://example.com/login');
-      expect(result.entry.feedbackType).toBe('group');
-      expect(result.entry.id).toBeDefined();
-      expect(result.entry.timestamp).toBeDefined();
+      expect(result.entry!.personaNames).toEqual(['Alice', 'Bob']);
+      expect(result.entry!.context).toBe('Testing the login page');
+      expect(result.entry!.url).toBe('https://example.com/login');
+      expect(result.entry!.feedbackType).toBe('group');
+      expect(result.entry!.id).toBeDefined();
+      expect(result.entry!.timestamp).toBeDefined();
     });
 
     it('should reject empty persona names', async () => {
@@ -125,8 +125,9 @@ describe('FeedbackService', () => {
       const result = await service.generateFeedback(params);
 
       expect(result.success).toBe(true);
-      expect(result.entry.title).toHaveLength(53); // 50 chars + '...'
-      expect(result.entry.title).toContain('...');
+      expect(result.entry).toBeDefined();
+      expect(result.entry!.title).toHaveLength(53); // 50 chars + '...'
+      expect(result.entry!.title).toContain('...');
     });
 
     it('should include screenshot if provided', async () => {
@@ -141,7 +142,8 @@ describe('FeedbackService', () => {
       const result = await service.generateFeedback(params);
 
       expect(result.success).toBe(true);
-      expect(result.entry.screenshot).toBe('base64-encoded-image-data');
+      expect(result.entry).toBeDefined();
+      expect(result.entry!.screenshot).toBe('base64-encoded-image-data');
     });
   });
 
@@ -194,10 +196,11 @@ describe('FeedbackService', () => {
       };
 
       const result = await service.generateFeedback(params);
-      const entry = service.getFeedbackEntry(result.entry.id);
+      expect(result.entry).toBeDefined();
+      const entry = service.getFeedbackEntry(result.entry!.id);
 
       expect(entry).not.toBeNull();
-      expect(entry?.id).toBe(result.entry.id);
+      expect(entry?.id).toBe(result.entry!.id);
       expect(entry?.context).toBe('Testing');
     });
   });
@@ -217,10 +220,11 @@ describe('FeedbackService', () => {
       };
 
       const result = await service.generateFeedback(params);
-      const deleted = await service.deleteFeedback(result.entry.id);
+      expect(result.entry).toBeDefined();
+      const deleted = await service.deleteFeedback(result.entry!.id);
 
       expect(deleted).toBe(true);
-      expect(service.getFeedbackEntry(result.entry.id)).toBeNull();
+      expect(service.getFeedbackEntry(result.entry!.id)).toBeNull();
     });
 
     it('should not affect other entries when deleting', async () => {
@@ -240,11 +244,13 @@ describe('FeedbackService', () => {
 
       const result1 = await service.generateFeedback(params1);
       const result2 = await service.generateFeedback(params2);
+      expect(result1.entry).toBeDefined();
+      expect(result2.entry).toBeDefined();
 
-      await service.deleteFeedback(result1.entry.id);
+      await service.deleteFeedback(result1.entry!.id);
 
-      expect(service.getFeedbackEntry(result1.entry.id)).toBeNull();
-      expect(service.getFeedbackEntry(result2.entry.id)).not.toBeNull();
+      expect(service.getFeedbackEntry(result1.entry!.id)).toBeNull();
+      expect(service.getFeedbackEntry(result2.entry!.id)).not.toBeNull();
     });
   });
 
@@ -427,10 +433,11 @@ describe('FeedbackService', () => {
       };
 
       const result = await service.generateFeedback(params);
+      expect(result.entry).toBeDefined();
       // Add content to make it complete
-      result.entry.content = 'Feedback content';
+      result.entry!.content = 'Feedback content';
 
-      const verification = service.verifyFeedbackMetadata(result.entry);
+      const verification = service.verifyFeedbackMetadata(result.entry!);
 
       expect(verification.valid).toBe(true);
       expect(verification.missingFields).toHaveLength(0);
@@ -570,13 +577,14 @@ describe('FeedbackService', () => {
       };
 
       const result = await service.generateFeedback(params);
+      expect(result.entry).toBeDefined();
 
       // Create new service instance with same storage
       const newService = new FeedbackService(storage, agentManager as any);
-      const entry = newService.getFeedbackEntry(result.entry.id);
+      const entry = newService.getFeedbackEntry(result.entry!.id);
 
       expect(entry).not.toBeNull();
-      expect(entry?.id).toBe(result.entry.id);
+      expect(entry?.id).toBe(result.entry!.id);
     });
 
     it('should enforce max history size', async () => {

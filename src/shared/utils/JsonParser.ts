@@ -46,7 +46,7 @@ export function extractJson(text: string): string | null {
  * Attempt to repair common JSON errors.
  */
 export function repairJson(json: string): string {
-    if (!json) return json;
+    if (!json) {return json;}
 
     let repaired = json;
 

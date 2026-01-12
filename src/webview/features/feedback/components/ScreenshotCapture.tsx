@@ -346,7 +346,7 @@ export function ScreenshotCapture({
                     style={{ display: 'none' }}
                     onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) handleFileSelect(file);
+                        if (file) {handleFileSelect(file);}
                     }}
                     disabled={disabled}
                 />
