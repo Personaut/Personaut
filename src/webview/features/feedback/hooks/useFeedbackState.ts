@@ -95,7 +95,7 @@ export function useFeedbackState(): UseFeedbackStateReturn {
         console.log('[useFeedbackState] Requesting feedback history');
         postMessage({ type: 'get-feedback-history' });
         console.log('[useFeedbackState] Sent get-feedback-history message');
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+
     }, [postMessage]); // Run once on mount
 
     // Listen for messages from extension
@@ -182,6 +182,15 @@ export function useFeedbackState(): UseFeedbackStateReturn {
                             ...prev,
                             feedbackHistory: message.history,
                         }));
+                    }
+                    break;
+                case 'feedback-deleted':
+                    // Handle feedback deletion confirmation from backend
+                    if (message.id) {
+                        console.log('[useFeedbackState] Feedback deleted:', message.id);
+                        // State already updated optimistically, this confirms it
+                        // Optionally refresh history to ensure sync
+                        postMessage({ type: 'get-feedback-history' });
                     }
                     break;
             }
@@ -276,14 +285,19 @@ export function useFeedbackState(): UseFeedbackStateReturn {
 
     const deleteFeedbackEntry = useCallback(
         (id: string) => {
+            // Send delete message to backend
+            postMessage({ type: 'delete-feedback', id });
+
+            // Update local state immediately (optimistic update)
             setStateInternal((prev) => {
                 const newHistory = prev.feedbackHistory.filter((entry) => entry.id !== id);
                 persistState({ feedbackHistory: newHistory });
                 return { ...prev, feedbackHistory: newHistory };
             });
         },
-        [persistState]
+        [persistState, postMessage]
     );
+
 
     const setLoading = useCallback((isLoading: boolean) => {
         setStateInternal((prev) => ({ ...prev, isLoading }));

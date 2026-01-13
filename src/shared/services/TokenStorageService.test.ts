@@ -204,8 +204,8 @@ describe('TokenStorageService', () => {
   describe('migrateFromPlainText', () => {
     it('should migrate keys from VS Code configuration to SecretStorage', async () => {
       mockWorkspaceConfiguration.get.mockImplementation((key: string) => {
-        if (key === 'geminiApiKey') return 'gemini-secret';
-        if (key === 'awsAccessKey') return 'aws-access-key';
+        if (key === 'geminiApiKey') {return 'gemini-secret';}
+        if (key === 'awsAccessKey') {return 'aws-access-key';}
         return undefined;
       });
 
@@ -219,8 +219,8 @@ describe('TokenStorageService', () => {
 
     it('should not migrate empty or whitespace keys from config', async () => {
       mockWorkspaceConfiguration.get.mockImplementation((key: string) => {
-        if (key === 'geminiApiKey') return '   ';
-        if (key === 'awsAccessKey') return '';
+        if (key === 'geminiApiKey') {return '   ';}
+        if (key === 'awsAccessKey') {return '';}
         return undefined;
       });
 

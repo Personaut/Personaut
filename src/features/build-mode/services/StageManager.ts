@@ -421,11 +421,11 @@ export class StageManager {
       const dirs = await fs.promises.readdir(iterationsDir);
       for (const dir of dirs) {
         const iterNum = parseInt(dir, 10);
-        if (isNaN(iterNum)) continue;
+        if (isNaN(iterNum)) {continue;}
 
         const iterDir = path.join(iterationsDir, dir);
         const stat = await fs.promises.stat(iterDir);
-        if (!stat.isDirectory()) continue;
+        if (!stat.isDirectory()) {continue;}
 
         const iteration: any = { iterationNumber: iterNum };
 
@@ -1097,7 +1097,7 @@ export class StageManager {
 
     // Check for old-style stage files
     for (const stage of STAGE_ORDER) {
-      if (stage === 'idea') continue; // Already checked above
+      if (stage === 'idea') {continue;} // Already checked above
       const oldStagePath = path.join(projectDir, `${stage}.stage.json`);
       if (fs.existsSync(oldStagePath)) {
         return true;
@@ -1126,7 +1126,7 @@ export class StageManager {
 
     // Copy old-style stage files
     for (const stage of STAGE_ORDER) {
-      if (stage === 'idea') continue;
+      if (stage === 'idea') {continue;}
       const oldStagePath = path.join(projectDir, `${stage}.stage.json`);
       if (fs.existsSync(oldStagePath)) {
         await fs.promises.copyFile(oldStagePath, path.join(backupDir, `${stage}.stage.json`));
@@ -1159,7 +1159,7 @@ export class StageManager {
 
     // Migrate old-style stage files
     for (const stage of STAGE_ORDER) {
-      if (stage === 'idea') continue;
+      if (stage === 'idea') {continue;}
       const oldStagePath = path.join(projectDir, `${stage}.stage.json`);
       const newStagePath = this.getStageFilePath(projectName, stage);
       if (fs.existsSync(oldStagePath)) {
@@ -1425,9 +1425,9 @@ export class StageManager {
         const screen = buildingStage.data.screens.find((s: any) => s.id === screenId || s.name === screenId);
         if (screen) {
           screen.buildStatus = status;
-          if (startTime) screen.buildStartTime = startTime;
-          if (endTime) screen.buildEndTime = endTime;
-          if (error) screen.buildError = error;
+          if (startTime) {screen.buildStartTime = startTime;}
+          if (endTime) {screen.buildEndTime = endTime;}
+          if (error) {screen.buildError = error;}
         }
       }
 

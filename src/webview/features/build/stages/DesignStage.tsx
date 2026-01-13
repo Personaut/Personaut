@@ -1,6 +1,7 @@
 import React from 'react';
-import { colors, spacing, borderRadius, typography, shadows, transitions } from '../../../shared/theme';
+import { colors, spacing, borderRadius, typography, shadows } from '../../../shared/theme';
 import { Button, Spinner } from '../../../shared/components/ui';
+import { EditableCard } from '../../../shared/components/EditableCard';
 import { UserFlow, Screen, Framework, FRAMEWORKS } from '../types';
 
 /**
@@ -19,16 +20,62 @@ export interface DesignStageProps {
     selectedFramework: Framework;
     /** Handler for framework change */
     onFrameworkChange: (framework: Framework) => void;
+    /** Look and Feel / Branding data */
+    lookAndFeel?: LookAndFeelData | null;
+    /** Handler to generate look and feel */
+    onGenerateLookAndFeel?: () => void;
+    /** Handler to update look and feel */
+    onLookAndFeelChange?: (data: LookAndFeelData) => void;
     /** Handler to generate flows */
     onGenerateFlows: () => void;
     /** Handler to generate screens */
     onGenerateScreens: () => void;
+    /** Handler to edit a screen */
+    onEditScreen?: (id: string, updates: { name?: string; description?: string }) => void;
+    /** Handler to regenerate a single screen */
+    onRegenerateScreen?: (id: string) => void;
+    /** Handler to remove a screen */
+    onRemoveScreen?: (id: string) => void;
     /** Handler for proceeding to next stage */
     onNext: () => void;
     /** Handler for going back */
     onBack: () => void;
     /** Loading state */
     isLoading?: boolean;
+    /** Loading state for look and feel generation */
+    isLoadingLookAndFeel?: boolean;
+    /** ID of screen currently being regenerated */
+    regeneratingScreenId?: string | null;
+}
+
+/**
+ * Look and Feel / Branding data structure
+ */
+export interface LookAndFeelData {
+    /** Primary color */
+    primaryColor: string;
+    /** Secondary color */
+    secondaryColor: string;
+    /** Accent color */
+    accentColor: string;
+    /** Background color */
+    backgroundColor: string;
+    /** Text color */
+    textColor: string;
+    /** Font family recommendations */
+    fontFamily: string;
+    /** Overall mood/tone */
+    mood: string;
+    /** Design style (minimal, bold, playful, etc.) */
+    style: string;
+    /** Target audience appeal */
+    audienceAppeal: string;
+    /** Logo description/concept */
+    logoDescription: string;
+    /** Key visual elements */
+    visualElements: string[];
+    /** Persona feedback summary */
+    personaFeedback?: string[];
 }
 
 /**
@@ -68,11 +115,19 @@ export function DesignStage({
     onScreensChange: _onScreensChange,
     selectedFramework,
     onFrameworkChange,
+    lookAndFeel,
+    onGenerateLookAndFeel,
+    onLookAndFeelChange: _onLookAndFeelChange,
     onGenerateFlows,
     onGenerateScreens,
+    onEditScreen,
+    onRegenerateScreen,
+    onRemoveScreen,
     onNext,
     onBack,
     isLoading = false,
+    isLoadingLookAndFeel = false,
+    regeneratingScreenId,
 }: DesignStageProps) {
     const containerStyle: React.CSSProperties = {
         display: 'flex',
@@ -115,40 +170,28 @@ export function DesignStage({
         marginBottom: spacing.md,
     };
 
-    const frameworkGridStyle: React.CSSProperties = {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-        gap: spacing.md,
-    };
-
-    const frameworkCardStyle = (isSelected: boolean): React.CSSProperties => ({
+    const selectStyle: React.CSSProperties = {
+        width: '100%',
         padding: spacing.md,
-        backgroundColor: isSelected ? 'rgba(255, 191, 36, 0.1)' : colors.background.tertiary,
-        border: `2px solid ${isSelected ? colors.accent : colors.border}`,
+        fontSize: typography.fontSize.md,
+        backgroundColor: colors.background.tertiary,
+        border: `1px solid ${colors.border}`,
         borderRadius: borderRadius.lg,
+        color: colors.text.primary,
         cursor: 'pointer',
-        textAlign: 'center',
-        transition: transitions.fast,
-    });
+        outline: 'none',
+        appearance: 'none',
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 12px center',
+        paddingRight: '40px',
+    };
 
     const flowCardStyle: React.CSSProperties = {
         padding: spacing.md,
         backgroundColor: colors.background.tertiary,
         borderRadius: borderRadius.lg,
         marginBottom: spacing.sm,
-    };
-
-    const screenGridStyle: React.CSSProperties = {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-        gap: spacing.md,
-    };
-
-    const screenCardStyle: React.CSSProperties = {
-        padding: spacing.md,
-        backgroundColor: colors.background.tertiary,
-        borderRadius: borderRadius.lg,
-        textAlign: 'center',
     };
 
     const buttonsStyle: React.CSSProperties = {
@@ -171,37 +214,180 @@ export function DesignStage({
             {/* Framework Selection */}
             <div style={sectionStyle}>
                 <h3 style={sectionTitleStyle}>Select Framework</h3>
-                <div style={frameworkGridStyle}>
+                <select
+                    value={selectedFramework}
+                    onChange={(e) => onFrameworkChange(e.target.value as Framework)}
+                    style={selectStyle}
+                >
                     {FRAMEWORKS.map((fw) => (
-                        <div
-                            key={fw}
-                            style={frameworkCardStyle(selectedFramework === fw)}
-                            onClick={() => onFrameworkChange(fw)}
-                        >
-                            <span style={{ fontSize: '24px', display: 'block', marginBottom: spacing.sm }} dangerouslySetInnerHTML={{ __html: FRAMEWORK_INFO[fw].icon }} />
-                            <span
-                                style={{
-                                    fontSize: typography.fontSize.sm,
-                                    fontWeight: typography.fontWeight.semibold,
-                                    color: colors.text.primary,
-                                    display: 'block',
-                                }}
-                            >
-                                {FRAMEWORK_INFO[fw].label}
-                            </span>
-                            <span
-                                style={{
-                                    fontSize: typography.fontSize.xs,
-                                    color: colors.text.secondary,
-                                }}
-                            >
-                                {FRAMEWORK_INFO[fw].description}
-                            </span>
-                        </div>
+                        <option key={fw} value={fw}>
+                            {FRAMEWORK_INFO[fw].label} - {FRAMEWORK_INFO[fw].description}
+                        </option>
                     ))}
-                </div>
+                </select>
             </div>
 
+            {/* Look and Feel Section */}
+            <div style={sectionStyle}>
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: spacing.md,
+                    }}
+                >
+                    <h3 style={{ ...sectionTitleStyle, marginBottom: 0 }}>🎨 Look & Feel</h3>
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={onGenerateLookAndFeel}
+                        loading={isLoadingLookAndFeel}
+                        disabled={!onGenerateLookAndFeel}
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ verticalAlign: 'middle', marginRight: '4px' }}><circle cx="13.5" cy="6.5" r=".5" /><circle cx="17.5" cy="10.5" r=".5" /><circle cx="8.5" cy="7.5" r=".5" /><circle cx="6.5" cy="12.5" r=".5" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></svg>
+                        {lookAndFeel ? 'Regenerate' : 'Generate Look & Feel'}
+                    </Button>
+                </div>
+
+                <p style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, marginBottom: spacing.md }}>
+                    Interview your personas to discover their visual preferences and generate a cohesive design language.
+                </p>
+
+                {!lookAndFeel && !isLoadingLookAndFeel && (
+                    <div
+                        style={{
+                            padding: spacing.lg,
+                            backgroundColor: colors.background.tertiary,
+                            borderRadius: borderRadius.lg,
+                            textAlign: 'center',
+                            border: `2px dashed ${colors.border}`,
+                        }}
+                    >
+                        <p style={{ color: colors.text.muted, margin: 0 }}>
+                            Click "Generate Look & Feel" to interview your personas about visual preferences
+                        </p>
+                    </div>
+                )}
+
+                {isLoadingLookAndFeel && (
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: spacing.md,
+                            padding: spacing.xl,
+                        }}
+                    >
+                        <Spinner size="lg" />
+                        <span style={{ color: colors.text.secondary }}>
+                            Interviewing personas about visual preferences...
+                        </span>
+                    </div>
+                )}
+
+                {lookAndFeel && !isLoadingLookAndFeel && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
+                        {/* Color Palette */}
+                        <div style={{ padding: spacing.md, backgroundColor: colors.background.tertiary, borderRadius: borderRadius.lg }}>
+                            <h4 style={{ fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semibold, color: colors.text.primary, marginBottom: spacing.sm }}>
+                                Color Palette
+                            </h4>
+                            <div style={{ display: 'flex', gap: spacing.sm, flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: spacing.xs }}>
+                                    <div style={{ width: 24, height: 24, borderRadius: borderRadius.sm, backgroundColor: lookAndFeel.primaryColor, border: `1px solid ${colors.border}` }} />
+                                    <span style={{ fontSize: typography.fontSize.xs, color: colors.text.secondary }}>Primary</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: spacing.xs }}>
+                                    <div style={{ width: 24, height: 24, borderRadius: borderRadius.sm, backgroundColor: lookAndFeel.secondaryColor, border: `1px solid ${colors.border}` }} />
+                                    <span style={{ fontSize: typography.fontSize.xs, color: colors.text.secondary }}>Secondary</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: spacing.xs }}>
+                                    <div style={{ width: 24, height: 24, borderRadius: borderRadius.sm, backgroundColor: lookAndFeel.accentColor, border: `1px solid ${colors.border}` }} />
+                                    <span style={{ fontSize: typography.fontSize.xs, color: colors.text.secondary }}>Accent</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: spacing.xs }}>
+                                    <div style={{ width: 24, height: 24, borderRadius: borderRadius.sm, backgroundColor: lookAndFeel.backgroundColor, border: `1px solid ${colors.border}` }} />
+                                    <span style={{ fontSize: typography.fontSize.xs, color: colors.text.secondary }}>Background</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Style & Mood */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.md }}>
+                            <div style={{ padding: spacing.md, backgroundColor: colors.background.tertiary, borderRadius: borderRadius.lg }}>
+                                <h4 style={{ fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semibold, color: colors.text.primary, marginBottom: spacing.xs }}>
+                                    Style
+                                </h4>
+                                <p style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, margin: 0 }}>{lookAndFeel.style}</p>
+                            </div>
+                            <div style={{ padding: spacing.md, backgroundColor: colors.background.tertiary, borderRadius: borderRadius.lg }}>
+                                <h4 style={{ fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semibold, color: colors.text.primary, marginBottom: spacing.xs }}>
+                                    Mood
+                                </h4>
+                                <p style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, margin: 0 }}>{lookAndFeel.mood}</p>
+                            </div>
+                        </div>
+
+                        {/* Typography */}
+                        <div style={{ padding: spacing.md, backgroundColor: colors.background.tertiary, borderRadius: borderRadius.lg }}>
+                            <h4 style={{ fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semibold, color: colors.text.primary, marginBottom: spacing.xs }}>
+                                Typography
+                            </h4>
+                            <p style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, margin: 0, fontFamily: lookAndFeel.fontFamily }}>
+                                {lookAndFeel.fontFamily}
+                            </p>
+                        </div>
+
+                        {/* Logo & Visual Elements */}
+                        <div style={{ padding: spacing.md, backgroundColor: colors.background.tertiary, borderRadius: borderRadius.lg }}>
+                            <h4 style={{ fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semibold, color: colors.text.primary, marginBottom: spacing.xs }}>
+                                Logo Concept
+                            </h4>
+                            <p style={{ fontSize: typography.fontSize.sm, color: colors.text.secondary, marginBottom: spacing.sm }}>{lookAndFeel.logoDescription}</p>
+
+                            {lookAndFeel.visualElements && lookAndFeel.visualElements.length > 0 && (
+                                <>
+                                    <h5 style={{ fontSize: typography.fontSize.xs, fontWeight: typography.fontWeight.medium, color: colors.text.primary, marginBottom: spacing.xs }}>
+                                        Key Visual Elements
+                                    </h5>
+                                    <div style={{ display: 'flex', gap: spacing.xs, flexWrap: 'wrap' }}>
+                                        {lookAndFeel.visualElements.map((element, i) => (
+                                            <span
+                                                key={i}
+                                                style={{
+                                                    padding: `${spacing.xs} ${spacing.sm}`,
+                                                    backgroundColor: colors.background.secondary,
+                                                    borderRadius: borderRadius.sm,
+                                                    fontSize: typography.fontSize.xs,
+                                                    color: colors.text.secondary,
+                                                }}
+                                            >
+                                                {element}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Persona Feedback */}
+                        {lookAndFeel.personaFeedback && lookAndFeel.personaFeedback.length > 0 && (
+                            <div style={{ padding: spacing.md, backgroundColor: colors.background.tertiary, borderRadius: borderRadius.lg }}>
+                                <h4 style={{ fontSize: typography.fontSize.sm, fontWeight: typography.fontWeight.semibold, color: colors.text.primary, marginBottom: spacing.sm }}>
+                                    💬 Persona Insights
+                                </h4>
+                                <ul style={{ margin: 0, paddingLeft: spacing.lg, color: colors.text.secondary, fontSize: typography.fontSize.sm }}>
+                                    {lookAndFeel.personaFeedback.map((feedback, i) => (
+                                        <li key={i} style={{ marginBottom: spacing.xs }}>{feedback}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* Screens - Generate first to define what screens exist */}
             <div style={sectionStyle}>
@@ -232,51 +418,20 @@ export function DesignStage({
                 )}
 
                 {screens.length > 0 && (
-                    <div style={screenGridStyle}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
                         {screens.map((screen) => (
-                            <div key={screen.id} style={screenCardStyle}>
-                                <div
-                                    style={{
-                                        width: '100%',
-                                        height: 120,
-                                        backgroundColor: colors.background.primary,
-                                        borderRadius: borderRadius.md,
-                                        marginBottom: spacing.sm,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        color: colors.text.muted,
-                                        fontSize: typography.fontSize.sm,
-                                    }}
-                                >
-                                    {screen.screenshot ? (
-                                        <img
-                                            src={screen.screenshot}
-                                            alt={screen.name}
-                                            style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: borderRadius.md }}
-                                        />
-                                    ) : (
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></svg>
-                                    )}
-                                </div>
-                                <div
-                                    style={{
-                                        fontSize: typography.fontSize.sm,
-                                        fontWeight: typography.fontWeight.semibold,
-                                        color: colors.text.primary,
-                                    }}
-                                >
-                                    {screen.name}
-                                </div>
-                                <div
-                                    style={{
-                                        fontSize: typography.fontSize.xs,
-                                        color: colors.text.secondary,
-                                    }}
-                                >
-                                    {screen.components.length} components
-                                </div>
-                            </div>
+                            <EditableCard
+                                key={screen.id}
+                                id={screen.id}
+                                title={screen.name}
+                                description={screen.description || `Purpose: ${(screen as any).purpose || 'User interface screen'}`}
+                                tags={screen.components?.slice(0, 5)}
+                                editable={!!onEditScreen}
+                                onEdit={onEditScreen ? (id, updates) => onEditScreen(id, { name: updates.title, description: updates.description }) : undefined}
+                                onRegenerate={onRegenerateScreen}
+                                onRemove={onRemoveScreen}
+                                isRegenerating={regeneratingScreenId === screen.id}
+                            />
                         ))}
                     </div>
                 )}
@@ -334,24 +489,31 @@ export function DesignStage({
                                     {flow.description}
                                 </div>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.xs }}>
-                                    {flow.steps.map((step, i) => (
-                                        <React.Fragment key={i}>
-                                            <span
-                                                style={{
-                                                    padding: `${spacing.xs} ${spacing.sm}`,
-                                                    backgroundColor: colors.background.secondary,
-                                                    borderRadius: borderRadius.md,
-                                                    fontSize: typography.fontSize.xs,
-                                                    color: colors.text.secondary,
-                                                }}
-                                            >
-                                                {step}
-                                            </span>
-                                            {i < flow.steps.length - 1 && (
-                                                <span style={{ color: colors.text.muted }}>→</span>
-                                            )}
-                                        </React.Fragment>
-                                    ))}
+                                    {flow.steps.map((step, i) => {
+                                        // Handle both string format and object format
+                                        const stepText = typeof step === 'string'
+                                            ? step
+                                            : (step as any).action || `${(step as any).fromScreen} → ${(step as any).toScreen}`;
+
+                                        return (
+                                            <React.Fragment key={i}>
+                                                <span
+                                                    style={{
+                                                        padding: `${spacing.xs} ${spacing.sm}`,
+                                                        backgroundColor: colors.background.secondary,
+                                                        borderRadius: borderRadius.md,
+                                                        fontSize: typography.fontSize.xs,
+                                                        color: colors.text.secondary,
+                                                    }}
+                                                >
+                                                    {stepText}
+                                                </span>
+                                                {i < flow.steps.length - 1 && (
+                                                    <span style={{ color: colors.text.muted }}>→</span>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         ))}
@@ -370,7 +532,7 @@ export function DesignStage({
                     disabled={!isValid}
                     fullWidth
                 >
-                    Continue to Build →
+                    Finalize Design →
                 </Button>
             </div>
         </div>

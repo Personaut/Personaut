@@ -28,11 +28,11 @@ function canNavigate(
     const currentIndex = BUILD_STAGES.indexOf(currentStage);
 
     // Can always go backwards
-    if (targetIndex <= currentIndex) return true;
+    if (targetIndex <= currentIndex) {return true;}
 
     // Can only go forward if all previous stages are complete
     for (let i = 0; i < targetIndex; i++) {
-        if (!completedStages.includes(BUILD_STAGES[i])) return false;
+        if (!completedStages.includes(BUILD_STAGES[i])) {return false;}
     }
     return true;
 }

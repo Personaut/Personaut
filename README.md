@@ -1,6 +1,6 @@
 # Personaut Extension
 
-> **🚀 Public Preview** | **v0.1.4**
+> **🚀 Public Preview** | **v0.1.5**
 >
 > Personaut is your empathetic AI development assistant that helps you build applications from idea to implementation. Chat with AI, gather user feedback, and generate full-stack applications - all within VS Code!
 
@@ -18,9 +18,10 @@ Gather authentic user feedback through AI-powered persona interviews. Generate r
 Transform your ideas into working applications through a guided multi-stage workflow:
 - **Idea** → Define your application concept
 - **Users** → Identify target personas and demographics  
-- **Features** → Generate user stories and feature sets
-- **Design** → Create UX flows and screen designs
-- **Build** → Generate production-ready code with AI agents
+- **Features** → Generate user stories and feature sets through persona interviews
+- **Stories** → Create detailed user stories mapped to features
+- **Design** → Create UX flows, screen designs, and generate Look & Feel
+- **Finalize** → Export comprehensive project documentation (task list, steering document, requirements)
 
 > **⚠️ Important:** Build Mode is experimental and currently **only works for new projects**. It will scaffold a fresh React/Next.js/Vue/Flutter application in an empty directory. Adding to existing projects is not yet supported.
 >
@@ -36,7 +37,7 @@ Transform your ideas into working applications through a guided multi-stage work
 
 ### Installation
 
-1. Download the `personaut-extension-0.1.4.vsix` file.
+1. Download the `personaut-extension-0.1.5.vsix` file.
 2. Open VS Code.
 3. Install the extension: Press `Cmd+Shift+P` (or `Ctrl+Shift+P`) and run `Extensions: Install from VSIX...`
 4. Select the VSIX file.
@@ -119,7 +120,7 @@ All critical bugs have been resolved:
 
 ## ⚠️ Known Issues
 
-### Build Mode - Experimental (v0.1.4)
+### Build Mode - Experimental (v0.1.5)
 
 #### New Projects Only
 - **Issue:** Build Mode currently only supports creating new projects from scratch.

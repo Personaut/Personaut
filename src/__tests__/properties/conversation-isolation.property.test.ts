@@ -123,8 +123,8 @@ describe('Property 8: Conversation Isolation', () => {
           // Create mock ConversationManager
           const mockConversationManager = {
             restoreConversation: jest.fn((id: string) => {
-              if (id === conversation1.id) return Promise.resolve(conversation1);
-              if (id === conversation2.id) return Promise.resolve(conversation2);
+              if (id === conversation1.id) {return Promise.resolve(conversation1);}
+              if (id === conversation2.id) {return Promise.resolve(conversation2);}
               return Promise.resolve(null);
             }),
             saveConversation: jest.fn(),
@@ -191,8 +191,8 @@ describe('Property 8: Conversation Isolation', () => {
           // Create mock ConversationManager
           const mockConversationManager = {
             restoreConversation: jest.fn((id: string) => {
-              if (id === conversation1.id) return Promise.resolve(conversation1);
-              if (id === conversation2.id) return Promise.resolve(conversation2);
+              if (id === conversation1.id) {return Promise.resolve(conversation1);}
+              if (id === conversation2.id) {return Promise.resolve(conversation2);}
               return Promise.resolve(null);
             }),
             saveConversation: jest.fn(),
@@ -262,8 +262,8 @@ describe('Property 8: Conversation Isolation', () => {
           // Create mock ConversationManager
           const mockConversationManager = {
             restoreConversation: jest.fn((id: string) => {
-              if (id === conversation1.id) return Promise.resolve(conversation1);
-              if (id === conversation2.id) return Promise.resolve(conversation2);
+              if (id === conversation1.id) {return Promise.resolve(conversation1);}
+              if (id === conversation2.id) {return Promise.resolve(conversation2);}
               return Promise.resolve(null);
             }),
             saveConversation: jest.fn(),

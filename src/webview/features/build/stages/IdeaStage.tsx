@@ -225,7 +225,7 @@ export function IdeaStage({
     return (
         <form style={containerStyle} onSubmit={handleSubmit}>
             <div style={headerStyle}>
-                <h1 style={titleStyle}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{verticalAlign: 'middle', marginRight: '8px'}}><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>What's your idea?</h1>
+                <h1 style={titleStyle}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ verticalAlign: 'middle', marginRight: '8px' }}><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>What's your idea?</h1>
                 <p style={subtitleStyle}>
                     {projectHistory.length > 0
                         ? 'Continue working on an existing project or start a new one.'
@@ -249,7 +249,7 @@ export function IdeaStage({
                         style={modeTabStyle(mode === 'new')}
                         onClick={() => handleModeChange('new')}
                     >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{verticalAlign: 'middle', marginRight: '6px'}}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>Create New Project
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ verticalAlign: 'middle', marginRight: '6px' }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>Create New Project
                     </button>
                 </div>
             )}
@@ -302,7 +302,7 @@ export function IdeaStage({
                             backgroundColor: colors.background.tertiary,
                             borderRadius: borderRadius.md,
                         }}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{verticalAlign: 'middle', marginRight: '4px'}}><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/></svg>Selected: <strong>{projectName}</strong>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ verticalAlign: 'middle', marginRight: '4px' }}><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /></svg>Selected: <strong>{projectName}</strong>
                         </div>
                     )}
                 </div>
@@ -358,7 +358,7 @@ export function IdeaStage({
                 loading={isLoading}
                 disabled={!isValid}
             >
-                {mode === 'existing' ? 'Continue with Selected Project →' : 'Continue to Team Setup →'}
+                {mode === 'existing' ? 'Continue with Selected Project →' : 'Continue to Users →'}
             </Button>
         </form>
     );

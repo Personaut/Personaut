@@ -91,7 +91,7 @@ export class PersonaFileStorage {
      * Save the index to disk
      */
     private async saveIndex(): Promise<void> {
-        if (!this.indexCache) return;
+        if (!this.indexCache) {return;}
 
         this.indexCache.lastUpdated = Date.now();
         await this.fileStorage.write(INDEX_FILE, this.indexCache);

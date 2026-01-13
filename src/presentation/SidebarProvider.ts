@@ -54,12 +54,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
 
     // Prevent webview disposal when hidden (keeps builds running)
-    webviewView.retainContextWhenHidden = true;
+    (webviewView as any).retainContextWhenHidden = true;
     // Configure webview options
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.extensionUri],
-      
+
     };
 
     // Set webview HTML content
@@ -266,6 +266,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       'start-iteration',
       'stop-iteration',
       'select-project',
+      // Finalize stage: export and generate documents
+      'export-document',
+      'export-all-documents',
+      'view-document',
+      'generate-task-list',
+      'generate-steering-document',
+      // Error retry handling
+      'retry-generation',
+      // Look and feel generation
+      'generate-look-and-feel',
     ];
     return buildModeMessageTypes.includes(type);
   }

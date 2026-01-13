@@ -83,7 +83,7 @@ export function useUserBaseState(): UseUserBaseStateReturn {
 
     // Computed: filtered personas
     const filteredPersonas = personas.filter((persona) => {
-        if (!searchQuery) return true;
+        if (!searchQuery) {return true;}
         const query = searchQuery.toLowerCase();
         return (
             persona.name.toLowerCase().includes(query) ||

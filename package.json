@@ -3,7 +3,7 @@
   "publisher": "personaut",
   "displayName": "Personaut",
   "description": "Personaut AI Coding Assistant",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "license": "Apache-2.0",
   "icon": "media/assets/personaut-logo.png",
   "repository": {
@@ -89,6 +89,50 @@
           "type": "string",
           "default": "gemini-1.5-pro-latest",
           "description": "Google Gemini Model ID"
+        },
+        "personaut.gemini.safetySettings.harassment": {
+          "type": "string",
+          "enum": [
+            "BLOCK_NONE",
+            "BLOCK_ONLY_HIGH",
+            "BLOCK_MEDIUM_AND_ABOVE",
+            "BLOCK_LOW_AND_ABOVE"
+          ],
+          "default": "BLOCK_MEDIUM_AND_ABOVE",
+          "description": "Safety threshold for harassment content"
+        },
+        "personaut.gemini.safetySettings.hateSpeech": {
+          "type": "string",
+          "enum": [
+            "BLOCK_NONE",
+            "BLOCK_ONLY_HIGH",
+            "BLOCK_MEDIUM_AND_ABOVE",
+            "BLOCK_LOW_AND_ABOVE"
+          ],
+          "default": "BLOCK_MEDIUM_AND_ABOVE",
+          "description": "Safety threshold for hate speech content"
+        },
+        "personaut.gemini.safetySettings.sexuallyExplicit": {
+          "type": "string",
+          "enum": [
+            "BLOCK_NONE",
+            "BLOCK_ONLY_HIGH",
+            "BLOCK_MEDIUM_AND_ABOVE",
+            "BLOCK_LOW_AND_ABOVE"
+          ],
+          "default": "BLOCK_MEDIUM_AND_ABOVE",
+          "description": "Safety threshold for sexually explicit content"
+        },
+        "personaut.gemini.safetySettings.dangerousContent": {
+          "type": "string",
+          "enum": [
+            "BLOCK_NONE",
+            "BLOCK_ONLY_HIGH",
+            "BLOCK_MEDIUM_AND_ABOVE",
+            "BLOCK_LOW_AND_ABOVE"
+          ],
+          "default": "BLOCK_MEDIUM_AND_ABOVE",
+          "description": "Safety threshold for dangerous content"
         },
         "personaut.awsAccessKey": {
           "type": "string",

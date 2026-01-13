@@ -18,18 +18,27 @@ import { BuildModeService } from '../services/BuildModeService';
 import { StageManager, isValidProjectName } from '../services/StageManager';
 import { ContentStreamer } from '../services/ContentStreamer';
 import { BuildLogManager } from '../services/BuildLogManager';
-import { StageName, STAGE_ORDER } from '../types/BuildModeTypes';
+import { STAGE_ORDER } from '../types/BuildModeTypes';
 import { PersonasService } from '../../personas/services/PersonasService';
 import { parseJson, createReparsePrompt } from '../../../shared/utils/JsonParser';
-
-import { WebpackErrorParser } from '../utils/WebpackErrorParser';
-import { CodeRepairService } from '../services/CodeRepairService';
+import { BuildingWorkflowHandler } from './BuildingWorkflowHandler';
+import { FileOperationsHandler } from './operations/FileOperationsHandler';
+import { StateManagementHandler } from './operations/StateManagementHandler';
+import { PersonaGenerationHandler } from './generation/PersonaGenerationHandler';
+import { USER_STORY_PROMPT, DESIGN_PROMPT, CPTO_PROMPT } from '../../../core/prompts/BuildPrompts';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as vscode from 'vscode';
 
 export class BuildModeHandler implements IFeatureHandler {
   private readonly errorSanitizer: ErrorSanitizer;
+  private readonly buildingWorkflowHandler: BuildingWorkflowHandler;
+  private readonly fileOperationsHandler: FileOperationsHandler;
+  private readonly stateManagementHandler: StateManagementHandler;
+  private readonly personaGenerationHandler: PersonaGenerationHandler;
 
   /** Valid stage names for whitelist validation */
-  private readonly VALID_STAGES = [...STAGE_ORDER, 'state', 'personas', 'features', 'stories', 'team'];
+  private readonly VALID_STAGES = [...STAGE_ORDER, 'state', 'personas', 'features', 'stories', 'team', 'tasks', 'steering', 'export-task-list', 'export-steering-document', 'finalize', 'design'];
 
   constructor(
     private readonly buildModeService: BuildModeService,
@@ -40,6 +49,25 @@ export class BuildModeHandler implements IFeatureHandler {
     private readonly personasService?: PersonasService
   ) {
     this.errorSanitizer = new ErrorSanitizer();
+    this.buildingWorkflowHandler = new BuildingWorkflowHandler(
+      this.buildModeService,
+      this.stageManager,
+      this.errorSanitizer
+    );
+    this.fileOperationsHandler = new FileOperationsHandler(
+      this.buildModeService,
+      this.stageManager,
+      this.errorSanitizer
+    );
+    this.stateManagementHandler = new StateManagementHandler(
+      this.buildModeService,
+      this.stageManager,
+      this.errorSanitizer
+    );
+    this.personaGenerationHandler = new PersonaGenerationHandler(
+      this.personasService,
+      this.errorSanitizer
+    );
   }
 
   /**
@@ -125,16 +153,16 @@ export class BuildModeHandler implements IFeatureHandler {
           await this.handleInitializeProject(message, webview);
           break;
         case 'save-stage-file':
-          await this.handleSaveStageFile(message, webview);
+          await this.fileOperationsHandler.handleSaveStageFile(message, webview);
           break;
         case 'load-stage-file':
-          await this.handleLoadStageFile(message, webview);
+          await this.fileOperationsHandler.handleLoadStageFile(message, webview);
           break;
         case 'generate-content-streaming':
           await this.handleGenerateContent(message, webview);
           break;
         case 'get-build-state':
-          await this.handleGetBuildState(message, webview);
+          await this.stateManagementHandler.handleGetBuildState(message, webview);
           break;
         case 'get-build-log':
         case 'load-build-log':
@@ -145,13 +173,13 @@ export class BuildModeHandler implements IFeatureHandler {
           await this.handleAppendLogEntry(message, webview);
           break;
         case 'complete-stage':
-          await this.handleCompleteStage(message, webview);
+          await this.stateManagementHandler.handleCompleteStage(message, webview);
           break;
         case 'validate-transition':
           await this.handleValidateTransition(message, webview);
           break;
         case 'get-completed-stages':
-          await this.handleGetCompletedStages(message, webview);
+          await this.stateManagementHandler.handleGetCompletedStages(message, webview);
           break;
         case 'retry-generation':
           await this.handleRetryGeneration(message, webview);
@@ -198,10 +226,10 @@ export class BuildModeHandler implements IFeatureHandler {
           break;
         // Persona generation handlers (Task 12)
         case 'generate-personas-from-demographics':
-          await this.handleGeneratePersonasFromDemographics(message, webview);
+          await this.personaGenerationHandler.handleGeneratePersonasFromDemographics(message, webview);
           break;
         case 'regenerate-single-persona':
-          await this.handleRegenerateSinglePersona(message, webview);
+          await this.personaGenerationHandler.handleRegenerateSinglePersona(message, webview);
           break;
         // User story generation handlers (Task 23)
         case 'generate-user-stories':
@@ -228,20 +256,20 @@ export class BuildModeHandler implements IFeatureHandler {
         case 'regenerate-single-feature':
           await this.handleRegenerateSingleFeature(message, webview);
           break;
-        // Building workflow handler (Task 21)
+        // Building workflow handler (Task 21) - Delegated to BuildingWorkflowHandler
         case 'start-building-workflow':
-          await this.handleStartBuildingWorkflow(message, webview);
+          await this.buildingWorkflowHandler.handleStartBuildingWorkflow(message, webview);
           break;
         // Workflow pause/resume handlers (Task 21.11)
         case 'pause-building-workflow':
           await this.handlePauseBuildingWorkflow(message, webview);
           break;
         case 'resume-building-workflow':
-          await this.handleResumeBuildingWorkflow(message, webview);
+          await this.buildingWorkflowHandler.handleResumeBuildingWorkflow(message, webview);
           break;
-        // Initialize building stage (create folder + init framework)
+        // Initialize building stage (create folder + init framework) - Delegated to BuildingWorkflowHandler
         case 'initialize-building':
-          await this.handleInitializeBuilding(message, webview);
+          await this.buildingWorkflowHandler.handleInitializeBuilding(message, webview);
           break;
         // Survey response saving (for individual interview responses)
         case 'save-survey-response':
@@ -253,7 +281,7 @@ export class BuildModeHandler implements IFeatureHandler {
           break;
         // Get active build status (for webview restoration)
         case 'get-active-build-status':
-          await this.handleGetActiveBuildStatus(message, webview);
+          await this.stateManagementHandler.handleGetActiveBuildStatus(message, webview);
           break;
         // Load all iterations for a page
         case 'load-page-iterations':
@@ -267,11 +295,11 @@ export class BuildModeHandler implements IFeatureHandler {
         case 'save-stage-data':
           // Alias for save-stage-file with stage and data from message
           message.stage = message.stage || message.dataType;
-          await this.handleSaveStageFile(message, webview);
+          await this.fileOperationsHandler.handleSaveStageFile(message, webview);
           break;
         case 'load-stage-data':
           // Alias for load-stage-file
-          await this.handleLoadStageFile(message, webview);
+          await this.fileOperationsHandler.handleLoadStageFile(message, webview);
           break;
         case 'set-project-name':
           // Handle project name setting (just create/initialize if needed)
@@ -282,7 +310,7 @@ export class BuildModeHandler implements IFeatureHandler {
           break;
         case 'generate-personas':
           // Generate personas from demographics
-          await this.handleGeneratePersonasFromDemographics(message, webview);
+          await this.personaGenerationHandler.handleGeneratePersonasFromDemographics(message, webview);
           break;
         case 'generate-features':
           // Generate features based on personas
@@ -301,8 +329,8 @@ export class BuildModeHandler implements IFeatureHandler {
           await this.handleGenerateScreens(message, webview);
           break;
         case 'start-build':
-          // Start the building workflow
-          await this.handleStartBuildingWorkflow(message, webview);
+          // Start the building workflow - Delegated to BuildingWorkflowHandler
+          await this.buildingWorkflowHandler.handleStartBuildingWorkflow(message, webview);
           break;
         case 'stop-build':
           // Pause the building workflow
@@ -334,12 +362,50 @@ export class BuildModeHandler implements IFeatureHandler {
           });
           break;
         case 'start-iteration':
-          // Start building iteration
-          await this.handleStartBuildingWorkflow(message, webview);
+          // Start building iteration - Delegated to BuildingWorkflowHandler
+          await this.buildingWorkflowHandler.handleStartBuildingWorkflow(message, webview);
           break;
         case 'stop-iteration':
           // Stop building iteration
           await this.handlePauseBuildingWorkflow(message, webview);
+          break;
+        // Design document export handlers (Finalize stage)
+        case 'export-document':
+          await this.handleExportDocument(message, webview);
+          break;
+        case 'export-all-documents':
+          await this.handleExportAllDocuments(message, webview);
+          break;
+        case 'view-document':
+          await this.handleViewDocument(message, webview);
+          break;
+        case 'generate-task-list':
+          await this.handleGenerateTaskList(message, webview);
+          break;
+        case 'generate-steering-document':
+          await this.handleGenerateSteeringDocument(message, webview);
+          break;
+        case 'retry-generation':
+          // Re-execute the original message that caused the parsing error
+          if (message.originalMessage) {
+            console.log(`[BuildModeHandler] Retrying generation for stage: ${message.originalMessage.stage}`);
+            await this.handle(message.originalMessage, webview);
+          }
+          break;
+        case 'generate-look-and-feel':
+          await this.handleGenerateLookAndFeel(message, webview);
+          break;
+        case 'generate-task-list':
+          await this.handleGenerateTaskList(message, webview);
+          break;
+        case 'generate-steering-document':
+          await this.handleGenerateSteeringDocument(message, webview);
+          break;
+        case 'export-document':
+          await this.handleExportDocument(message, webview);
+          break;
+        case 'export-all-documents':
+          await this.handleExportAllDocuments(message, webview);
           break;
         default:
           console.warn(`[BuildModeHandler] Unknown message type: ${message.type}`);
@@ -373,99 +439,9 @@ export class BuildModeHandler implements IFeatureHandler {
     });
   }
 
-  /**
-   * Handle save stage file request.
-   */
-  private async handleSaveStageFile(message: WebviewMessage, webview: any): Promise<void> {
-    if (!message.projectName || !message.stage) {
-      throw new Error('Project name and stage are required');
-    }
 
-    // Security: Validate inputs to prevent path traversal
-    this.validateProjectName(message.projectName);
-    this.validateStageName(message.stage);
 
-    let dataToSave = message.data || {};
 
-    // For design stage, merge with existing data to prevent losing pages/userFlows
-    if (message.stage === 'design') {
-      const existingData = (await this.buildModeService.loadStage(message.projectName, 'design') || {}) as any;
-      const newData = dataToSave as any;
-
-      // Only use new pages/userFlows if they are non-empty arrays
-      const pagesAreValid = Array.isArray(newData.pages) && newData.pages.length > 0;
-      const flowsAreValid = Array.isArray(newData.userFlows) && newData.userFlows.length > 0;
-
-      dataToSave = {
-        ...existingData,
-        ...newData,
-        // Preserve existing pages if new ones are empty
-        pages: pagesAreValid ? newData.pages : (existingData.pages || []),
-        // Preserve existing flows if new ones are empty
-        userFlows: flowsAreValid ? newData.userFlows : (existingData.userFlows || []),
-        // Preserve framework
-        framework: newData.framework || existingData.framework,
-      };
-
-      console.log(`[BuildModeHandler] Design save merge - pages: ${dataToSave.pages?.length}, flows: ${dataToSave.userFlows?.length}`);
-    }
-
-    // Initialize screen status fields for building stage
-    if (message.stage === 'building' && dataToSave && (dataToSave as any).screens) {
-      const screens = (dataToSave as any).screens;
-      if (Array.isArray(screens)) {
-        (dataToSave as any).screens = screens.map((screen: any) => ({
-          ...screen,
-          buildStatus: screen.buildStatus || 'pending',
-          buildStartTime: screen.buildStartTime || undefined,
-          buildEndTime: screen.buildEndTime || undefined,
-          buildError: screen.buildError || undefined,
-        }));
-      }
-    }
-
-    await this.buildModeService.saveStage(
-      message.projectName,
-      message.stage,
-      dataToSave,
-      message.completed || false
-    );
-
-    webview.postMessage({
-      type: 'stage-file-saved',
-      projectName: message.projectName,
-      stage: message.stage,
-      completed: message.completed || false,
-      success: true,
-    });
-  }
-
-  /**
-   * Handle load stage file request.
-   * Returns the full StageFile object (with data, completed, timestamp fields)
-   * so the webview can access both content and metadata.
-   */
-  private async handleLoadStageFile(message: WebviewMessage, webview: any): Promise<void> {
-    if (!message.projectName || !message.stage) {
-      throw new Error('Project name and stage are required');
-    }
-
-    // Security: Validate inputs to prevent path traversal
-    this.validateProjectName(message.projectName);
-    this.validateStageName(message.stage);
-
-    // Use stageManager.readStageFile directly to get the full StageFile object
-    // (not buildModeService.loadStage which only returns the inner data)
-    // The webview expects: data.data for content, data.completed for status
-    const stageFile = await this.stageManager.readStageFile(message.projectName, message.stage);
-
-    webview.postMessage({
-      type: 'stage-file-loaded',
-      projectName: message.projectName,
-      stage: message.stage,
-      data: stageFile, // Full StageFile object with { data, completed, timestamp, stage, version }
-    });
-  }
 
   /**
    * Handle generate content streaming request.
@@ -542,9 +518,19 @@ export class BuildModeHandler implements IFeatureHandler {
             parsedData = repairedData;
             console.log(`[BuildModeHandler] LLM repair succeeded for stage ${message.stage}`);
           } else {
-            // Keep as string if repair also failed
+            // Keep as string if repair also failed - notify webview of parsing error
             console.warn(`[BuildModeHandler] LLM repair failed, keeping as string for stage ${message.stage}`);
             parsedData = generatedContent;
+
+            // Send parsing error notification to webview for retry
+            webview.postMessage({
+              type: 'parsing-error',
+              stage: message.stage,
+              projectName: message.projectName,
+              error: parseResult.error || 'Failed to parse AI response as valid JSON',
+              retryable: true,
+              originalMessage: message,
+            });
           }
         }
       }
@@ -674,25 +660,7 @@ export class BuildModeHandler implements IFeatureHandler {
     });
   }
 
-  /**
-   * Get active build status for webview restoration
-   */
-  private async handleGetActiveBuildStatus(_message: WebviewMessage, webview: any): Promise<void> {
-    const activeBuild = this.buildModeService.getActiveBuildState();
 
-    if (activeBuild) {
-      webview.postMessage({
-        type: 'active-build-status',
-        status: activeBuild,
-      });
-    } else {
-      // No active build
-      webview.postMessage({
-        type: 'active-build-status',
-        status: null,
-      });
-    }
-  }
 
   /**
    * Handle get build log request.
@@ -734,27 +702,7 @@ export class BuildModeHandler implements IFeatureHandler {
     });
   }
 
-  /**
-   * Handle complete stage request.
-   */
-  private async handleCompleteStage(message: WebviewMessage, webview: any): Promise<void> {
-    if (!message.projectName || !message.stage) {
-      throw new Error('Project name and stage are required');
-    }
 
-    // Security: Validate inputs to prevent path traversal
-    this.validateProjectName(message.projectName);
-    this.validateStageName(message.stage);
-
-    await this.buildModeService.completeStage(message.projectName, message.stage as StageName);
-
-    webview.postMessage({
-      type: 'stage-completed',
-      projectName: message.projectName,
-      stage: message.stage,
-      success: true,
-    });
-  }
 
   /**
    * Handle validate transition request.
@@ -782,25 +730,7 @@ export class BuildModeHandler implements IFeatureHandler {
     });
   }
 
-  /**
-   * Handle get completed stages request.
-   */
-  private async handleGetCompletedStages(message: WebviewMessage, webview: any): Promise<void> {
-    if (!message.projectName) {
-      throw new Error('Project name is required');
-    }
 
-    // Security: Validate project name to prevent path traversal
-    this.validateProjectName(message.projectName);
-
-    const completedStages = await this.buildModeService.getCompletedStages(message.projectName);
-
-    webview.postMessage({
-      type: 'completed-stages',
-      projectName: message.projectName,
-      completedStages,
-    });
-  }
 
   /**
    * Handle retry generation request.
@@ -876,11 +806,16 @@ export class BuildModeHandler implements IFeatureHandler {
     this.validateProjectName(message.projectName);
     this.validateStageName(message.dataType);
 
+    // Use completed flag from message, default to true if data exists
+    const isCompleted = message.completed !== undefined
+      ? message.completed
+      : (message.data && Object.keys(message.data).length > 0);
+
     await this.buildModeService.saveStage(
       message.projectName,
       message.dataType,
       message.data || {},
-      false
+      isCompleted
     );
 
     webview.postMessage({
@@ -1448,428 +1383,13 @@ export class BuildModeHandler implements IFeatureHandler {
     }
   }
 
-  /**
-   * Handle initialize building stage request.
-   * Creates the building folder and initializes framework if needed.
-   */
-  private async handleInitializeBuilding(message: WebviewMessage, webview: any): Promise<void> {
-    const { projectName, framework, screens, codeFolderName } = message;
 
-    if (!projectName) {
-      throw new Error('Project name is required');
-    }
 
-    this.validateProjectName(projectName);
 
-    console.log('[BuildModeHandler] Initializing building stage:', {
-      projectName,
-      framework: framework || 'react',
-      screenCount: screens?.length || 0,
-      codeFolderName: codeFolderName || '(workspace root)',
-    });
-
-    try {
-      // Step 1: Create build folder with page subfolders
-      webview.postMessage({
-        type: 'building-init-progress',
-        step: 'folder',
-        status: 'running',
-        message: 'Creating build folder and page directories...',
-      });
-
-      // Extract page names from screens
-      const pageNames = (screens || []).map((s: any) => s.name || `Page ${screens.indexOf(s) + 1}`);
-      const buildFolderPath = await this.stageManager.createBuildFolder(projectName, pageNames);
-
-      webview.postMessage({
-        type: 'building-init-progress',
-        step: 'folder',
-        status: 'complete',
-        message: `Build folder created with ${pageNames.length} page directories`,
-        path: buildFolderPath,
-      });
-
-      // Step 2: Determine project path (workspace root or subdirectory)
-      const workspacePath = await this.stageManager.getWorkspacePath();
-      const fs = await import('fs');
-      const path = await import('path');
-
-      // If codeFolderName is provided, create that subdirectory
-      let projectPath = workspacePath;
-      if (codeFolderName && codeFolderName.trim()) {
-        projectPath = path.join(workspacePath, codeFolderName.trim());
-
-        // Create the project subdirectory if it doesn't exist
-        if (!fs.existsSync(projectPath)) {
-          await fs.promises.mkdir(projectPath, { recursive: true });
-          webview.postMessage({
-            type: 'building-init-progress',
-            step: 'folder',
-            status: 'complete',
-            message: `Created code folder: ${codeFolderName}/`,
-          });
-        }
-      }
-
-      // Step 3: Check if framework is already initialized in the project path
-      webview.postMessage({
-        type: 'building-init-progress',
-        step: 'framework-check',
-        status: 'running',
-        message: 'Checking framework initialization...',
-      });
-
-      const packageJsonPath = path.join(projectPath, 'package.json');
-      const frameworkInitialized = fs.existsSync(packageJsonPath);
-
-      if (frameworkInitialized) {
-        // Framework already set up
-        webview.postMessage({
-          type: 'building-init-progress',
-          step: 'framework-check',
-          status: 'complete',
-          message: 'Framework already initialized',
-          frameworkReady: true,
-        });
-      } else {
-        // No package.json - initialize framework
-        webview.postMessage({
-          type: 'building-init-progress',
-          step: 'framework-init',
-          status: 'running',
-          message: `Initializing ${framework || 'React'} project with Vite...`,
-        });
-
-        // Get framework init command - run in project subdirectory if specified
-        const initCommand = this.getFrameworkInitCommand(framework || 'react', projectPath);
-
-        if (initCommand) {
-          // Execute framework initialization
-          const { exec } = await import('child_process');
-          const util = await import('util');
-          const execPromise = util.promisify(exec);
-
-          try {
-            webview.postMessage({
-              type: 'building-init-progress',
-              step: 'framework-init',
-              status: 'running',
-              message: `Running: ${initCommand.command}`,
-            });
-
-            await execPromise(initCommand.command, {
-              cwd: initCommand.cwd,
-              timeout: 180000, // 3 minute timeout (some inits are slow)
-            });
-
-            webview.postMessage({
-              type: 'building-init-progress',
-              step: 'framework-init',
-              status: 'complete',
-              message: `${framework || 'React'} project initialized successfully`,
-              frameworkReady: true,
-            });
-            // Dev server will be started just-in-time during screenshot capture
-          } catch (initError: any) {
-            console.error('[BuildModeHandler] Framework init failed:', initError.message?.split('\\n')[0] || initError);
-            webview.postMessage({
-              type: 'building-init-progress',
-              step: 'framework-init',
-              status: 'skipped', // Use skipped instead of error to not block
-              message: `Auto-init skipped. Please set up your ${framework || 'React'} project manually.`,
-              frameworkReady: false,
-            });
-          }
-        } else {
-          webview.postMessage({
-            type: 'building-init-progress',
-            step: 'framework-init',
-            status: 'skipped',
-            message: 'No auto-initialization for this framework. Please set up manually.',
-            frameworkReady: false,
-          });
-        }
-      }
-
-      // Dev server will be started just-in-time during screenshot capture (no long-running process)
-
-      // Step 4: Initialize page tracking
-      const pageStates = (screens || []).map((screen: any, idx: number) => ({
-        id: screen.id || `page-${idx + 1}`,
-        name: screen.name || `Page ${idx + 1}`,
-        status: idx === 0 ? 'pending' : 'locked', // First page is pending, rest are locked
-        currentIteration: 0,
-        maxIterations: 5,
-        history: [],
-      }));
-
-      webview.postMessage({
-        type: 'building-initialized',
-        projectName,
-        buildFolderPath,
-        codeFolderName: codeFolderName || null,
-        pages: pageStates,
-        framework: framework || 'react',
-      });
-
-      console.log('[BuildModeHandler] Building stage initialized successfully');
-
-    } catch (error: any) {
-      console.error('[BuildModeHandler] Failed to initialize building stage:', error);
-      webview.postMessage({
-        type: 'building-init-error',
-        error: error.message || 'Failed to initialize building stage',
-      });
-    }
-  }
-
-  /**
-   * Get the framework initialization command based on selected framework.
-   * Uses modern Vite-based tooling for React/Vue.
-   */
-  private getFrameworkInitCommand(framework: string, workspacePath: string): { command: string; cwd: string } | null {
-    // Use Vite for modern React/Vue projects
-    const commands: Record<string, string | null> = {
-      'react': 'npm create vite@latest . -- --template react-ts',
-      'nextjs': 'npx -y create-next-app@latest . --typescript --eslint --tailwind --app --src-dir --import-alias "@/*" --use-npm',
-      'vue': 'npm create vite@latest . -- --template vue-ts',
-      'flutter': 'flutter create .',
-      'html': null, // No init needed for plain HTML
-    };
-
-    const command = commands[framework.toLowerCase()];
-    if (!command) {
-      return null;
-    }
-
-    return { command, cwd: workspacePath };
-  }
-
-  // ==================== Persona Generation Handlers (Task 12) ====================
-
-  /**
-   * Generate random value within demographic range.
-   */
-  private generateRandomInRange(min: number, max: number): number {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
-  }
-
-  /**
-   * Pick random item from array.
-   */
-  private pickRandom<T>(array: T[]): T {
-    return array[Math.floor(Math.random() * array.length)];
-  }
-
-  /**
-   * Generate persona attributes from demographics.
-   */
-  private generatePersonaAttributes(
-    demographics: {
-      ageMin?: number;
-      ageMax?: number;
-      occupations?: string[];
-      description?: string;
-    },
-    index: number
-  ): { name: string; attributes: Record<string, string> } {
-    // Generate random age within range
-    const ageMin = demographics.ageMin || 18;
-    const ageMax = demographics.ageMax || 65;
-    const age = this.generateRandomInRange(ageMin, ageMax);
-
-    // Pick occupation
-    const occupations = demographics.occupations || ['Professional', 'Student', 'Entrepreneur'];
-    const occupation = this.pickRandom(occupations);
-
-    // Generate name
-    const firstNames = ['Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Blake', 'Cameron'];
-    const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'];
-    const name = `${this.pickRandom(firstNames)} ${this.pickRandom(lastNames)}`;
-
-    // Build attributes
-    const attributes: Record<string, string> = {
-      age: String(age),
-      occupation,
-    };
-
-    // Add description context if provided
-    if (demographics.description) {
-      attributes.context = demographics.description;
-    }
-
-    // Add persona number for variation
-    attributes.personaIndex = String(index + 1);
-
-    return { name, attributes };
-  }
-
-  /**
-   * Handle generate personas from demographics request.
-   * Validates: Requirements 9.1, 9.2
-   */
-  private async handleGeneratePersonasFromDemographics(
-    message: WebviewMessage,
-    webview: any
-  ): Promise<void> {
-    if (!this.personasService) {
-      throw new Error('PersonasService is not available');
-    }
-
-    const demographics = message.demographics || {};
-    const count = message.count || 5;
-
-    console.log('[BuildModeHandler] Generating personas from demographics:', {
-      demographics,
-      count,
-    });
-
-    // Notify start
-    webview.postMessage({
-      type: 'personas-generation-started',
-      count,
-    });
-
-    const generatedPersonas: any[] = [];
-
-    try {
-      for (let i = 0; i < count; i++) {
-        // Generate persona attributes
-        const { name, attributes } = this.generatePersonaAttributes(demographics, i);
-
-        // Create persona using PersonasService
-        const persona = await this.personasService.createPersona({ name, attributes });
-
-        // Send progress update
-        webview.postMessage({
-          type: 'persona-created',
-          index: i,
-          persona,
-        });
-
-        // Generate backstory for persona
-        try {
-          const backstory = await this.personasService.generateBackstory(persona.id);
-
-          // Update local persona with backstory
-          const updatedPersona = { ...persona, backstory };
-          generatedPersonas.push(updatedPersona);
-
-          // Send backstory update
-          webview.postMessage({
-            type: 'persona-backstory-generated',
-            index: i,
-            persona: updatedPersona,
-          });
-        } catch (backstoryError: any) {
-          console.error(`[BuildModeHandler] Failed to generate backstory for persona ${i}:`, backstoryError);
-          // Still add persona without backstory
-          generatedPersonas.push({ ...persona, backstory: '' });
-
-          webview.postMessage({
-            type: 'persona-backstory-error',
-            index: i,
-            persona,
-            error: this.errorSanitizer.sanitize(backstoryError).userMessage,
-          });
-        }
-      }
-
-      // Send completion
-      webview.postMessage({
-        type: 'personas-generated',
-        personas: generatedPersonas,
-        count: generatedPersonas.length,
-      });
-
-      console.log('[BuildModeHandler] Personas generated successfully:', {
-        count: generatedPersonas.length,
-      });
-    } catch (error: any) {
-      console.error('[BuildModeHandler] Failed to generate personas:', error);
-
-      webview.postMessage({
-        type: 'personas-generation-error',
-        error: this.errorSanitizer.sanitize(error).userMessage,
-        partialPersonas: generatedPersonas,
-      });
-    }
-  }
-
-  /**
-   * Handle regenerate single persona request.
-   * Validates: Requirements 9.5
-   */
-  private async handleRegenerateSinglePersona(
-    message: WebviewMessage,
-    webview: any
-  ): Promise<void> {
-    if (!this.personasService) {
-      throw new Error('PersonasService is not available');
-    }
-
-    if (!message.personaId) {
-      throw new Error('Persona ID is required');
-    }
-
-    console.log('[BuildModeHandler] Regenerating persona:', {
-      personaId: message.personaId,
-    });
-
-    try {
-      // Generate new backstory
-      const backstory = await this.personasService.generateBackstory(message.personaId);
-
-      // Get updated persona
-      const updatedPersona = await this.personasService.getPersonaById(message.personaId);
-
-      webview.postMessage({
-        type: 'persona-updated',
-        personaId: message.personaId,
-        persona: updatedPersona,
-        backstory,
-      });
-
-      console.log('[BuildModeHandler] Persona regenerated successfully:', {
-        personaId: message.personaId,
-        backstoryLength: backstory?.length || 0,
-      });
-    } catch (error: any) {
-      console.error('[BuildModeHandler] Failed to regenerate persona:', error);
-
-      webview.postMessage({
-        type: 'persona-regeneration-error',
-        personaId: message.personaId,
-        error: this.errorSanitizer.sanitize(error).userMessage,
-      });
-    }
-  }
 
   // ==================== User Story Generation Handlers (Task 23) ====================
 
-  /**
-   * System prompt for user story generation.
-   */
-  private readonly USER_STORY_PROMPT = `You are a UX expert generating user stories. 
-For each feature, create a comprehensive user story in the format:
-"As a [persona], I want [feature], so that [benefit]"
 
-Each story should include:
-- A clear, descriptive title
-- The user story description in the standard format
-- 3-5 acceptance criteria (testable conditions)
-- 2-3 clarifying questions to refine requirements
-
-Output as JSON array with structure:
-[{
-  "id": "story-1",
-  "title": "Story Title",
-  "description": "As a user, I want to...",
-  "acceptanceCriteria": ["Given..., When..., Then..."],
-  "clarifyingQuestions": ["What happens if...?"],
-  "featureId": "feature-id",
-  "personaId": "persona-id"
-}]`;
 
   /**
    * Handle generate user stories request.
@@ -1888,7 +1408,7 @@ Output as JSON array with structure:
     const features = message.features || [];
     const personas = message.personas || [];
 
-    console.log('[BuildModeHandler] Generating user stories:', {
+    console.log('[BuildModeHandler] Generating user stories per feature:', {
       projectName: message.projectName,
       featureCount: features.length,
       personaCount: personas.length,
@@ -1901,86 +1421,140 @@ Output as JSON array with structure:
     });
 
     try {
-      // Build the prompt with feature and persona context
-      const featureList = features
-        .map((f: any) => `- ${f.name}: ${f.description || 'No description'}`)
-        .join('\n');
+      const allStories: any[] = [];
       const personaList = personas
         .map((p: any) => `- ${p.name}: ${p.backstory || 'No backstory'}`)
         .join('\n');
 
-      const prompt = `Generate user stories for the following features and personas:
+      // Generate stories for EACH feature individually
+      for (let i = 0; i < features.length; i++) {
+        const feature = features[i];
 
-FEATURES:
-${featureList || 'No features provided'}
+        console.log(`[BuildModeHandler] Generating stories for feature ${i + 1}/${features.length}: ${feature.name}`);
 
-PERSONAS:
+        // Send progress update
+        webview.postMessage({
+          type: 'build-log',
+          entry: {
+            timestamp: Date.now(),
+            type: 'info',
+            stage: 'stories',
+            message: `Generating stories for feature ${i + 1}/${features.length}: ${feature.name}`,
+          },
+        });
+
+        const featurePrompt = `Generate 2-3 user stories for this SPECIFIC feature:
+
+FEATURE: ${feature.name}
+DESCRIPTION: ${feature.description || 'No description provided'}
+
+AVAILABLE PERSONAS:
 ${personaList || 'No personas provided'}
 
-Generate one user story per feature, considering the perspectives of all personas.`;
+REQUIREMENTS:
+1. Generate exactly 2-3 user stories for this feature
+2. Each story should use a different persona from the list above
+3. Use the format: "As a [persona name], I want [specific action related to this feature], so that [benefit]"
+4. Include 3-5 testable acceptance criteria per story
+5. Include 2-3 clarifying questions per story
 
-      // Use BuildModeService to generate content
-      const generatedContent = await this.buildModeService.generateStageContent(
-        message.projectName,
-        'stories',
-        `${this.USER_STORY_PROMPT}\n\n${prompt}`
-      );
+Output ONLY valid JSON array (no markdown, no code blocks):
+[
+  {
+    "id": "story-${feature.id || `feature-${i + 1}`}-1",
+    "title": "Brief descriptive title",
+    "description": "As a [persona], I want...",
+    "acceptanceCriteria": ["Given..., When..., Then..."],
+    "clarifyingQuestions": ["What happens if...?"],
+    "priority": "High",
+    "featureId": "${feature.id || `feature-${i + 1}`}",
+    "featureName": "${feature.name}",
+    "personaId": "persona-id-from-list"
+  }
+]`;
 
-      // Parse the generated stories
-      let stories: any[] = [];
-      console.log('[BuildModeHandler] Parsing stories, content length:', generatedContent?.length);
-      const parseResult = parseJson(generatedContent);
-      console.log('[BuildModeHandler] Parse result:', {
-        success: parseResult.success,
-        error: parseResult.error,
-        dataType: typeof parseResult.data,
-        isArray: Array.isArray(parseResult.data),
-        hasStories: parseResult.data?.stories ? 'yes' : 'no',
-        storiesCount: parseResult.data?.stories?.length ?? (Array.isArray(parseResult.data) ? parseResult.data.length : 0),
-      });
-      if (parseResult.success && parseResult.data) {
-        // Handle both array and object with stories property
-        if (Array.isArray(parseResult.data)) {
-          stories = parseResult.data;
-        } else if (parseResult.data.stories && Array.isArray(parseResult.data.stories)) {
-          stories = parseResult.data.stories;
-        }
-        console.log('[BuildModeHandler] Parsed stories count:', stories.length);
-        if (parseResult.wasRepaired) {
-          console.log(`[BuildModeHandler] JSON was repaired for stories generation`);
-        }
-      } else {
-        // Try LLM repair (one attempt)
-        console.warn(`[BuildModeHandler] Initial stories parse failed: ${parseResult.error}`);
-        const repairedStories = await this.attemptLlmJsonRepair(
-          generatedContent,
-          parseResult.error || 'Unknown parse error',
-          message.projectName
-        );
-        if (repairedStories) {
-          if (Array.isArray(repairedStories)) {
-            stories = repairedStories;
-          } else if (repairedStories.stories && Array.isArray(repairedStories.stories)) {
-            stories = repairedStories.stories;
+        try {
+          const generatedContent = await this.buildModeService.generateStageContent(
+            message.projectName,
+            'stories',
+            `${USER_STORY_PROMPT}\n\n${featurePrompt}`
+          );
+
+          // Parse the generated stories for this feature
+          const parseResult = parseJson(generatedContent);
+
+          if (parseResult.success && parseResult.data) {
+            let featureStories: any[] = [];
+            if (Array.isArray(parseResult.data)) {
+              featureStories = parseResult.data;
+            } else if (parseResult.data.stories && Array.isArray(parseResult.data.stories)) {
+              featureStories = parseResult.data.stories;
+            }
+
+            // Add feature context to each story
+            featureStories = featureStories.map((story: any, idx: number) => ({
+              ...story,
+              id: story.id || `story-${feature.id || `f${i + 1}`}-${idx + 1}-${Date.now()}`,
+              featureId: feature.id || `feature-${i + 1}`,
+              featureName: feature.name,
+            }));
+
+            allStories.push(...featureStories);
+            console.log(`[BuildModeHandler] Generated ${featureStories.length} stories for feature: ${feature.name}`);
+          } else {
+            // Try LLM repair
+            console.warn(`[BuildModeHandler] Parse failed for feature ${feature.name}, attempting repair`);
+            const repairedStories = await this.attemptLlmJsonRepair(
+              generatedContent,
+              parseResult.error || 'Unknown parse error',
+              message.projectName
+            );
+
+            if (repairedStories) {
+              let featureStories: any[] = Array.isArray(repairedStories)
+                ? repairedStories
+                : (repairedStories.stories || []);
+
+              featureStories = featureStories.map((story: any, idx: number) => ({
+                ...story,
+                id: story.id || `story-${feature.id || `f${i + 1}`}-${idx + 1}-${Date.now()}`,
+                featureId: feature.id || `feature-${i + 1}`,
+                featureName: feature.name,
+              }));
+
+              allStories.push(...featureStories);
+              console.log(`[BuildModeHandler] Repair succeeded, got ${featureStories.length} stories for: ${feature.name}`);
+            } else {
+              // Create fallback story for this feature
+              console.warn(`[BuildModeHandler] Creating fallback story for feature: ${feature.name}`);
+              allStories.push({
+                id: `story-${feature.id || `f${i + 1}`}-fallback-${Date.now()}`,
+                title: `Implement ${feature.name}`,
+                description: `As a user, I want ${feature.name.toLowerCase()}, so that I can benefit from this feature.`,
+                acceptanceCriteria: ['Feature is implemented and working', 'User can access the feature'],
+                clarifyingQuestions: [{ question: 'What are the specific requirements?', answer: '' }],
+                featureId: feature.id || `feature-${i + 1}`,
+                featureName: feature.name,
+              });
+            }
           }
-          console.log(`[BuildModeHandler] LLM repair succeeded for stories`);
-        } else {
-          // Fallback: create a simple story from the text
-          console.warn(`[BuildModeHandler] LLM repair failed, creating fallback story`);
-          stories = [
-            {
-              id: `story-${Date.now()}`,
-              title: 'Generated Story',
-              description: generatedContent,
-              acceptanceCriteria: [],
-              clarifyingQuestions: [],
-            },
-          ];
+        } catch (featureError: any) {
+          console.error(`[BuildModeHandler] Error generating stories for feature ${feature.name}:`, featureError);
+          // Create fallback story for failed feature
+          allStories.push({
+            id: `story-${feature.id || `f${i + 1}`}-error-${Date.now()}`,
+            title: `Implement ${feature.name}`,
+            description: `As a user, I want ${feature.name.toLowerCase()}, so that I can benefit from this feature.`,
+            acceptanceCriteria: ['Feature is implemented and working'],
+            clarifyingQuestions: [],
+            featureId: feature.id || `feature-${i + 1}`,
+            featureName: feature.name,
+          });
         }
       }
 
       // Ensure each story has required fields
-      stories = stories.map((story: any, index: number) => ({
+      const stories = allStories.map((story: any, index: number) => ({
         id: story.id || `story-${index + 1}-${Date.now()}`,
         title: story.title || `User Story ${index + 1}`,
         description: story.description || '',
@@ -1988,24 +1562,25 @@ Generate one user story per feature, considering the perspectives of all persona
         acceptanceCriteria: Array.isArray(story.acceptanceCriteria)
           ? story.acceptanceCriteria
           : [],
-        // Normalize clarifyingQuestions to {question, answer} format
         clarifyingQuestions: Array.isArray(story.clarifyingQuestions)
           ? story.clarifyingQuestions.map((q: any) =>
             typeof q === 'string' ? { question: q, answer: '' } : q
           )
           : [],
         featureId: story.featureId || null,
+        featureName: story.featureName || null,
         personaId: story.personaId || null,
+        priority: story.priority || 'Medium',
         answers: story.answers || {},
         expanded: false,
       }));
 
-      // Save to stage file
+      // Save to stage file with completed=true since stories were successfully generated
       await this.buildModeService.saveStage(
         message.projectName,
         'stories',
         { stories },
-        false
+        true
       );
 
       // Send success response
@@ -2018,6 +1593,8 @@ Generate one user story per feature, considering the perspectives of all persona
       console.log('[BuildModeHandler] User stories generated:', {
         projectName: message.projectName,
         storyCount: stories.length,
+        featureCount: features.length,
+        avgStoriesPerFeature: (stories.length / features.length).toFixed(1),
       });
     } catch (error: any) {
       console.error('[BuildModeHandler] Failed to generate user stories:', error);
@@ -2066,7 +1643,7 @@ Generate a single improved user story with acceptance criteria and clarifying qu
       const generatedContent = await this.buildModeService.generateStageContent(
         message.projectName,
         'stories',
-        `${this.USER_STORY_PROMPT}\n\n${prompt}`
+        `${USER_STORY_PROMPT}\n\n${prompt}`
       );
 
       // Parse the regenerated story
@@ -2115,30 +1692,6 @@ Generate a single improved user story with acceptance criteria and clarifying qu
 
   // ==================== Design Generation Handlers (Task 25) ====================
 
-  /**
-   * System prompt for design generation.
-   */
-  private readonly DESIGN_PROMPT = `You are a UX expert generating design specifications.
-Based on the user stories and selected framework, generate:
-1. User flows showing page navigation paths
-2. Key screens/pages with detailed specifications
-
-Output as JSON with structure:
-{
-  "userFlows": [{
-    "id": "flow-1",
-    "name": "Flow Name",
-    "description": "What this flow achieves",
-    "steps": ["Page A", "Page B", "Page C"]
-  }],
-  "pages": [{
-    "id": "page-1",
-    "name": "Page Name",
-    "purpose": "What the user achieves here",
-    "uiElements": ["element1", "element2"],
-    "userActions": ["action1", "action2"]
-  }]
-}`;
 
   /**
    * Handle generate design request.
@@ -2185,7 +1738,7 @@ Generate user flows and page specifications optimized for ${framework}.`;
       const generatedContent = await this.buildModeService.generateStageContent(
         message.projectName,
         'design',
-        `${this.DESIGN_PROMPT}\n\n${prompt}`
+        `${DESIGN_PROMPT}\n\n${prompt}`
       );
 
       let design: any = { userFlows: [], pages: [] };
@@ -2236,11 +1789,12 @@ Generate user flows and page specifications optimized for ${framework}.`;
       delete design.screens;
 
       // Save to stage file
+      // Mark design as complete since it was successfully generated
       await this.buildModeService.saveStage(
         message.projectName,
         'design',
         { ...design, framework },
-        false
+        true
       );
 
       webview.postMessage({
@@ -2261,6 +1815,226 @@ Generate user flows and page specifications optimized for ${framework}.`;
 
       webview.postMessage({
         type: 'design-generation-error',
+        projectName: message.projectName,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle generate look and feel request.
+   * Interviews personas about visual preferences and generates branding/theming data.
+   */
+  private async handleGenerateLookAndFeel(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    if (!message.projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(message.projectName);
+
+    let personas = message.personas || [];
+    const projectTitle = message.projectTitle || message.projectName;
+
+    // If no personas provided, try to load from saved users stage
+    if (personas.length === 0) {
+      console.log('[BuildModeHandler] No personas in message, loading from saved users stage...');
+      try {
+        const savedUsersStage = await this.buildModeService.loadStage(message.projectName, 'users');
+        if (savedUsersStage?.personas && Array.isArray(savedUsersStage.personas)) {
+          personas = savedUsersStage.personas;
+          console.log('[BuildModeHandler] Loaded', personas.length, 'personas from saved users stage');
+        }
+      } catch (loadErr) {
+        console.warn('[BuildModeHandler] Could not load personas from users stage:', loadErr);
+      }
+    }
+
+    console.log('[BuildModeHandler] Generating look and feel:', {
+      projectName: message.projectName,
+      personaCount: personas.length,
+      personaNames: personas.map((p: any) => p.name),
+    });
+
+    webview.postMessage({
+      type: 'look-and-feel-generation-started',
+      projectName: message.projectName,
+    });
+
+    try {
+      const personaFeedback: string[] = [];
+
+      // Check if we have personas to interview
+      if (personas.length === 0) {
+        webview.postMessage({
+          type: 'build-log',
+          entry: {
+            timestamp: Date.now(),
+            type: 'warning',
+            stage: 'design',
+            message: 'No personas available. Please generate personas in the Users stage first, or go back and complete that step.',
+          },
+        });
+        webview.postMessage({
+          type: 'look-and-feel-generation-error',
+          error: 'No personas available. Please complete the Users stage first to generate personas.',
+          projectName: message.projectName,
+        });
+        return;
+      }
+
+      // Interview each persona about visual preferences
+      for (let i = 0; i < personas.length; i++) {
+        const persona = personas[i];
+
+        webview.postMessage({
+          type: 'build-log',
+          entry: {
+            timestamp: Date.now(),
+            type: 'info',
+            stage: 'design',
+            message: `Interviewing ${persona.name} about visual preferences (${i + 1}/${personas.length})...`,
+          },
+        });
+
+        const interviewPrompt = `You are ${persona.name}, ${persona.backstory || 'a user'}.
+
+You're being asked about your visual preferences for a new app: "${projectTitle}"
+
+Share your honest opinions about:
+1. What colors make you feel comfortable and engaged? What colors do you avoid?
+2. Do you prefer modern/minimalist designs, or more vibrant/playful ones?
+3. What kind of typography do you find easiest to read?
+4. What visual style would make this app feel trustworthy and professional to you?
+5. Any specific aesthetic preferences based on your background?
+
+Respond naturally as ${persona.name}, in 2-3 sentences per question.`;
+
+        try {
+          const conversationId = `look-feel-${message.projectName}-${persona.id}-${Date.now()}`;
+          const agent = await this.buildModeService['agentManager'].getOrCreateAgent(conversationId, 'build');
+
+          await agent.chat(interviewPrompt, [], {}, '', false);
+
+          const conversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(conversationId);
+          const lastMsg = conversation?.messages.filter((m: any) => m.role === 'model').pop();
+
+          if (lastMsg?.text) {
+            personaFeedback.push(`${persona.name}: ${lastMsg.text.slice(0, 200)}...`);
+          }
+
+          await this.buildModeService['agentManager'].disposeAgent(conversationId);
+        } catch (err: any) {
+          console.error(`[BuildModeHandler] Error interviewing ${persona.name}:`, err);
+          personaFeedback.push(`${persona.name}: (interview failed)`);
+        }
+      }
+
+      // Now generate consolidated look and feel based on persona feedback
+      webview.postMessage({
+        type: 'build-log',
+        entry: {
+          timestamp: Date.now(),
+          type: 'info',
+          stage: 'design',
+          message: 'Consolidating visual preferences into design guidelines...',
+        },
+      });
+
+      const consolidationPrompt = `Based on the following user interviews about visual preferences for "${projectTitle}", generate a cohesive design language.
+
+PERSONA FEEDBACK:
+${personaFeedback.join('\n\n')}
+
+Generate a comprehensive look and feel specification. Output ONLY valid JSON (no markdown):
+{
+  "primaryColor": "#hexcolor",
+  "secondaryColor": "#hexcolor",
+  "accentColor": "#hexcolor",
+  "backgroundColor": "#hexcolor",
+  "textColor": "#hexcolor",
+  "fontFamily": "Font name recommendation",
+  "mood": "One line description of the overall mood",
+  "style": "Design style description (e.g., Modern Minimalist, Bold & Playful, etc.)",
+  "audienceAppeal": "What makes this appealing to the target audience",
+  "logoDescription": "Concept for the logo design",
+  "visualElements": ["element1", "element2", "element3"],
+  "personaFeedback": ["Key insight 1 from personas", "Key insight 2"]
+}`;
+
+      const conversationId = `look-feel-consolidate-${message.projectName}-${Date.now()}`;
+      const agent = await this.buildModeService['agentManager'].getOrCreateAgent(conversationId, 'build');
+
+      await agent.chat(consolidationPrompt, [], {}, 'You are a UX designer creating a visual identity based on user research. Return only valid JSON.', false);
+
+      const conversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(conversationId);
+      const lastMsg = conversation?.messages.filter((m: any) => m.role === 'model').pop();
+
+      let lookAndFeel: any = null;
+
+      if (lastMsg?.text) {
+        const parseResult = parseJson(lastMsg.text);
+        if (parseResult.success && parseResult.data) {
+          lookAndFeel = parseResult.data;
+        } else {
+          // Try repair
+          const repairedData = await this.attemptLlmJsonRepair(
+            lastMsg.text,
+            parseResult.error || 'Unknown parse error',
+            message.projectName
+          );
+          if (repairedData) {
+            lookAndFeel = repairedData;
+          }
+        }
+      }
+
+      await this.buildModeService['agentManager'].disposeAgent(conversationId);
+
+      if (!lookAndFeel) {
+        // Fallback with sensible defaults
+        lookAndFeel = {
+          primaryColor: '#3B82F6',
+          secondaryColor: '#1E40AF',
+          accentColor: '#F59E0B',
+          backgroundColor: '#FFFFFF',
+          textColor: '#1F2937',
+          fontFamily: 'Inter, system-ui, sans-serif',
+          mood: 'Clean and professional',
+          style: 'Modern Minimalist',
+          audienceAppeal: 'Easy to use with clear visual hierarchy',
+          logoDescription: 'Simple, memorable mark with the product name',
+          visualElements: ['Rounded corners', 'Subtle shadows', 'Clean icons'],
+          personaFeedback: personaFeedback.slice(0, 3),
+        };
+      }
+
+      // Save to design stage
+      const existingDesign = await this.buildModeService.loadStage(message.projectName, 'design') || {};
+      await this.buildModeService.saveStage(
+        message.projectName,
+        'design',
+        { ...existingDesign, lookAndFeel },
+        false
+      );
+
+      webview.postMessage({
+        type: 'look-and-feel-generated',
+        projectName: message.projectName,
+        lookAndFeel,
+      });
+
+      console.log('[BuildModeHandler] Look and feel generated:', {
+        projectName: message.projectName,
+        style: lookAndFeel.style,
+      });
+    } catch (error: any) {
+      console.error('[BuildModeHandler] Failed to generate look and feel:', error);
+
+      webview.postMessage({
+        type: 'look-and-feel-generation-error',
         projectName: message.projectName,
         error: this.errorSanitizer.sanitize(error).userMessage,
       });
@@ -2387,12 +2161,12 @@ ${prompt}`
         userFlows: normalizedFlows,
       };
 
-      // Save to stage file
+      // Save to stage file - mark as complete
       await this.buildModeService.saveStage(
         message.projectName,
         'design',
         updatedDesign,
-        false
+        true
       );
 
       webview.postMessage({
@@ -2424,20 +2198,50 @@ ${prompt}`
     message: WebviewMessage,
     webview: any
   ): Promise<void> {
-    if (!message.projectName) {
-      throw new Error('Project name is required');
-    }
+    console.log('[BuildModeHandler] handleGenerateScreens called with:', {
+      projectName: message.projectName,
+      hasStories: !!message.stories || !!message.userStories,
+      framework: message.framework,
+    });
 
+    if (!message.projectName) {
+      console.error('[BuildModeHandler] Generate screens failed: no project name');
+      webview.postMessage({
+        type: 'build-log',
+        entry: {
+          timestamp: Date.now(),
+          type: 'error',
+          stage: 'design',
+          message: 'Cannot generate screens: Project name is not set. Please go back to the Idea stage and set a project name.',
+        },
+      });
+      webview.postMessage({
+        type: 'screens-generation-error',
+        error: 'Project name is required. Please set a project name in the Idea stage.',
+        projectName: '',
+      });
+      return;
+    }
 
     this.validateProjectName(message.projectName);
 
     const userStories = message.stories || message.userStories || [];
-    const framework = message.framework || 'React';
+    const framework = message.framework || 'react';
 
     console.log('[BuildModeHandler] Generating screens from user stories:', {
       projectName: message.projectName,
       storyCount: userStories.length,
       framework,
+    });
+
+    webview.postMessage({
+      type: 'build-log',
+      entry: {
+        timestamp: Date.now(),
+        type: 'info',
+        stage: 'design',
+        message: `Generating screens from ${userStories.length} user stories for ${framework}...`,
+      },
     });
 
     webview.postMessage({
@@ -2511,12 +2315,12 @@ ${prompt}`
         framework,
       };
 
-      // Save to stage file
+      // Save to stage file - mark as complete
       await this.buildModeService.saveStage(
         message.projectName,
         'design',
         updatedDesign,
-        false
+        true
       );
 
       webview.postMessage({
@@ -2575,7 +2379,7 @@ Generate 3-5 clear user flows showing how users navigate through the application
       const generatedContent = await this.buildModeService.generateStageContent(
         message.projectName,
         'design',
-        `${this.DESIGN_PROMPT}\n\n${prompt}`
+        `${DESIGN_PROMPT}\n\n${prompt}`
       );
 
       let flows: any[] = [];
@@ -2612,6 +2416,7 @@ Generate 3-5 clear user flows showing how users navigate through the application
 
       // Save flows to file - merge with existing design data
       const existingDesign = (await this.buildModeService.loadStage(message.projectName, 'design') || {}) as any;
+      // Mark design as complete after successful user flows generation
       await this.buildModeService.saveStage(
         message.projectName,
         'design',
@@ -2619,7 +2424,7 @@ Generate 3-5 clear user flows showing how users navigate through the application
           ...existingDesign,
           userFlows: flows,
         },
-        existingDesign.completed || false
+        true
       );
 
       webview.postMessage({
@@ -2699,8 +2504,8 @@ Generate 3-5 clear user flows showing how users navigate through the application
         }
       );
 
-      // Save
-      await this.buildModeService.saveStage(projectName, 'features', result, false);
+      // Save with completed=true since features were successfully generated
+      await this.buildModeService.saveStage(projectName, 'features', result, true);
 
       webview.postMessage({
         type: 'features-generated',
@@ -2802,7 +2607,7 @@ Generate 3-5 clear user flows showing how users navigate through the application
       const conversationId = `regenerate-feature-${projectName}-${featureId}-${Date.now()}`;
       const agent = await this.buildModeService['agentManager'].getOrCreateAgent(conversationId, 'build');
 
-      const systemPrompt = `You are a CPTO (Chief Product & Technology Officer). 
+      const systemPrompt = CPTO_PROMPT + `
 Your task is to regenerate a single feature description based on user survey data.
 Focus on improving clarity, priority assessment, and actionable description.`;
 
@@ -2895,1309 +2700,7 @@ Output as JSON:
    * Handle start building workflow request (Task 21)
    * Validates: Requirements 12.2, 12.3, 12.4, 12.5, 12.6, 12.7
    */
-  private async handleStartBuildingWorkflow(message: WebviewMessage, webview: any): Promise<void> {
-    console.log('[BuildModeHandler] handleStartBuildingWorkflow called with message:', {
-      type: message.type,
-      projectName: message.projectName,
-      hasScreens: !!message.screens,
-      hasUserStory: !!message.userStory,
-      framework: message.framework,
-    });
 
-    const { projectName, userStory, screens, iterationNumber, framework, personas, previousFeedback } = message;
-
-    // Accept either userStory (old flow) or screens (new flow)
-    if (!projectName || (!userStory && (!screens || screens.length === 0))) {
-      throw new Error('Project name and either user story or screens are required');
-    }
-
-    this.validateProjectName(projectName);
-
-    const iteration = iterationNumber || 1;
-
-    console.log('[BuildModeHandler] Starting building workflow:', {
-      projectName,
-      iteration,
-      framework: framework || 'React',
-      hasScreens: !!screens,
-      hasUserStory: !!userStory,
-      screenCount: screens?.length || 0,
-    });
-
-    // If screens are provided (new flow), implement screen-based workflow
-    if (screens && screens.length > 0 && !userStory) {
-      console.log('[BuildModeHandler] Screen-based build workflow requested');
-
-      // Notify start
-      webview.postMessage({
-        type: 'building-workflow-started',
-        projectName,
-        iterationNumber: iteration,
-      });
-
-      try {
-        // Initialize active build state for webview restoration
-        this.buildModeService.setActiveBuildState({
-          projectName,
-          status: 'in-progress',
-          currentStep: 0,
-          totalSteps: screens.length + 2,
-          currentAgent: 'project-init',
-          logs: [],
-          startTime: Date.now(),
-          // Initialize screen-level tracking
-          screens: screens.map((screen: { name: string }) => ({
-            screenName: screen.name,
-            status: 'pending' as const,
-          })),
-          completedScreens: [],
-          isCancelled: false, // Initialize cancellation state
-        });
-
-        const totalSteps = screens.length + 2; // Project init + screens + completion
-        let currentStep = 0;
-
-        // Set up cancellation handler
-        const cancelHandler = () => {
-          this.buildModeService.cancelActiveBuild();
-          console.log('[BuildModeHandler] Build cancelled by user');
-        };
-
-        // Store cancel handler for stop-build message
-        (this.buildModeService as any)['cancelBuild'] = cancelHandler;
-
-        // Step 1: Initialize project structure
-        currentStep++;
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps,
-          agentId: 'project-init',
-          status: 'running',
-          message: `Initializing ${framework || 'React'} project structure...`,
-        });
-
-        // Update active build state
-        this.buildModeService.updateActiveBuildProgress(currentStep, totalSteps, 'project-init');
-
-        webview.postMessage({
-          type: 'build-log',
-          projectName,
-          entry: {
-            timestamp: Date.now(),
-            type: 'info',
-            message: `📁 Creating project: ${projectName}`,
-          },
-        });
-
-        // Create project directory structure in testing folder
-        const fs = await import('fs/promises');
-        const path = await import('path');
-
-        // Use /Users/anthony/testing/{projectName} for the actual project
-        const testingDir = '/Users/anthony/testing';
-        const projectPath = path.join(testingDir, projectName);
-
-        console.log('[BuildModeHandler] Creating project at:', projectPath);
-
-        // Create basic directory structure
-        const srcPath = path.join(projectPath, 'src');
-        const pagesPath = path.join(srcPath, 'pages');
-        const componentsPath = path.join(srcPath, 'components');
-
-        await fs.mkdir(srcPath, { recursive: true });
-        await fs.mkdir(pagesPath, { recursive: true });
-        await fs.mkdir(componentsPath, { recursive: true });
-
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps,
-          agentId: 'project-init',
-          status: 'complete',
-          message: 'Project structure created',
-        });
-
-        // Step 1.5a: Generate package.json
-        currentStep++;
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps: totalSteps + 3, // Add 3 more steps for Phase 1
-          agentId: 'package-json',
-          status: 'in-progress',
-          message: 'Generating package.json...',
-        });
-
-        const { PackageJsonGenerator } = await import('../services/PackageJsonGenerator');
-        const packageGenerator = new PackageJsonGenerator();
-        const packageJson = packageGenerator.generate({
-          projectName,
-          framework: framework || 'react',
-          description: `${projectName} - Generated by Personaut Build Mode`,
-        });
-
-        await fs.writeFile(
-          path.join(projectPath, 'package.json'),
-          packageGenerator.stringify(packageJson),
-          'utf-8'
-        );
-
-        webview.postMessage({
-          type: 'build-log',
-          projectName,
-          entry: {
-            timestamp: Date.now(),
-            type: 'success',
-            message: `✅ package.json created for ${framework}`,
-          },
-        });
-
-        // Step 1.5b: Install dependencies
-        currentStep++;
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps: totalSteps + 3,
-          agentId: 'npm-install',
-          status: 'in-progress',
-          message: 'Installing dependencies...',
-        });
-
-        const { DependencyInstaller } = await import('../services/DependencyInstaller');
-        const installer = new DependencyInstaller();
-
-        const installResult = await installer.install({
-          projectPath,
-          onProgress: (message) => {
-            webview.postMessage({
-              type: 'build-log',
-              projectName,
-              entry: {
-                timestamp: Date.now(),
-                type: 'info',
-                message: `📦 ${message}`,
-              },
-            });
-          },
-          onError: (error) => {
-            webview.postMessage({
-              type: 'build-log',
-              projectName,
-              entry: {
-                timestamp: Date.now(),
-                type: 'error',
-                message: `❌ ${error}`,
-              },
-            });
-          },
-        });
-
-        if (!installResult.success) {
-          throw new Error(`Dependency installation failed: ${installResult.error}`);
-        }
-
-        // Check if cancelled after dependency installation
-        if (this.buildModeService.isBuildCancelled()) {
-          console.log('[BuildModeHandler] Build cancelled after dependency installation');
-          return;
-        }
-
-        webview.postMessage({
-          type: 'build-log',
-          projectName,
-          entry: {
-            timestamp: Date.now(),
-            type: 'success',
-            message: `✅ Dependencies installed in ${(installResult.duration / 1000).toFixed(1)}s`,
-          },
-        });
-
-        // Step 1.5c: Create React boilerplate
-        currentStep++;
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps: totalSteps + 5, // +5 for boilerplate, dev server, screenshots
-          agentId: 'boilerplate',
-          status: 'in-progress',
-          message: 'Creating React app boilerplate...',
-        });
-
-        const { ReactBoilerplateGenerator } = await import('../services/ReactBoilerplateGenerator');
-        const boilerplateGen = new ReactBoilerplateGenerator();
-
-        await boilerplateGen.generate({
-          projectPath,
-          projectName,
-          screens: screens.map((s: { id: string; name: string }) => ({ id: s.id, name: s.name })),
-        });
-
-        webview.postMessage({
-          type: 'build-log',
-          projectName,
-          entry: {
-            timestamp: Date.now(),
-            type: 'success',
-            message: '✅ React app boilerplate created (index.html, App.tsx, routing)',
-          },
-        });
-
-        // Check if cancelled after boilerplate creation
-        const cancelledState = this.buildModeService.isBuildCancelled();
-        console.log('[BuildModeHandler] After boilerplate - isCancelled:', cancelledState);
-        if (cancelledState) {
-          console.log('[BuildModeHandler] Build cancelled after boilerplate creation');
-          webview.postMessage({
-            type: 'build-log',
-            projectName,
-            entry: {
-              timestamp: Date.now(),
-              type: 'warning',
-              message: '⚠️ Build was cancelled',
-            },
-          });
-          return;
-        }
-
-        // Wait a moment for file system to sync before starting dev server
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Step 1.5d: Start dev server
-        currentStep++;
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps: totalSteps + 5,
-          agentId: 'dev-server',
-          status: 'in-progress',
-          message: 'Starting development server...',
-        });
-
-        const { DevServerManager } = await import('../services/DevServerManager');
-        const devServer = new DevServerManager();
-
-        const serverResult = await devServer.start({
-          projectPath,
-          framework: framework || 'react',
-          port: 3000,
-          timeout: 120000, // 2 minutes for React to compile
-          onLog: (message) => {
-            webview.postMessage({
-              type: 'build-log',
-              projectName,
-              entry: {
-                timestamp: Date.now(),
-                type: 'info',
-                message: `🚀 ${message}`,
-              },
-            });
-          },
-          onReady: () => {
-            webview.postMessage({
-              type: 'build-log',
-              projectName,
-              entry: {
-                timestamp: Date.now(),
-                type: 'success',
-                message: `✅ Dev server ready at http://localhost:3000`,
-              },
-            });
-          },
-        });
-
-        // Check if cancelled after dev server start
-        if (this.buildModeService.isBuildCancelled()) {
-          console.log('[BuildModeHandler] Build cancelled after dev server start');
-          if (serverResult.success) {
-            await devServer.stop();
-          }
-          return;
-        }
-
-        if (!serverResult.success) {
-          webview.postMessage({
-            type: 'build-log',
-            projectName,
-            entry: {
-              timestamp: Date.now(),
-              type: 'warning',
-              message: `⚠️ Dev server failed: ${serverResult.error}. Continuing without screenshots.`,
-            },
-          });
-        } else {
-          // Store server for cleanup
-          (this.buildModeService as any)['activeDevServer'] = devServer;
-
-
-          // Step 2: Generate code for each screen (one at a time)
-          for (let i = 0; i < screens.length; i++) {
-            // Check if cancelled
-            if (this.buildModeService.isBuildCancelled()) {
-              console.log('[BuildModeHandler] Build cancelled, stopping screen generation');
-              break;
-            }
-
-            const screen = screens[i];
-            currentStep++;
-
-            // Update screen status to in-progress
-            this.buildModeService.updateScreenStatus(screen.name, 'in-progress');
-
-            webview.postMessage({
-              type: 'building-progress-update',
-              step: currentStep,
-              totalSteps,
-              agentId: `screen-${screen.id}`,
-              status: 'running',
-              message: `Generating code for ${screen.name}...`,
-            });
-
-            webview.postMessage({
-              type: 'build-log',
-              projectName,
-              entry: {
-                timestamp: Date.now(),
-                type: 'info',
-                message: `🎨 Generating ${screen.name}`,
-              },
-            });
-
-            // Generate code using AI
-            const codeGenConversationId = `build-screen-${projectName}-${screen.id}-${Date.now()}`;
-
-            try {
-              const codeAgent = await this.buildModeService['agentManager'].getOrCreateAgent(
-                codeGenConversationId,
-                'build'
-              );
-
-              const codePrompt = `Generate a ${framework || 'React'} component for this screen:
-
-Screen Name: ${screen.name}
-Description: ${screen.description || 'No description'}
-Components: ${(screen.components || []).join(', ')}
-
-Requirements:
-1. Create a functional component
-2. Include all specified UI components
-3. Add basic styling (inline or CSS-in-JS)
-4. Include proper TypeScript types
-5. Add comments explaining key sections
-6. Make it responsive and accessible
-
-Return ONLY the code, no explanations.`;
-
-              await codeAgent.chat(codePrompt, [], {},
-                `You are a senior ${framework || 'React'} developer. Generate clean, production-ready code.`,
-                false
-              );
-
-              // Check if cancelled after AI call
-              if (this.buildModeService.isBuildCancelled()) {
-                await this.buildModeService['agentManager'].disposeAgent(codeGenConversationId);
-                break;
-              }
-
-              const codeConversation = await this.buildModeService['agentManager']['config']
-                .conversationManager.getConversation(codeGenConversationId);
-              const codeMsg = codeConversation?.messages.filter((m: any) => m.role === 'model').pop();
-              let generatedCode = codeMsg?.text || '';
-
-              // Extract code from markdown code blocks if present
-              const codeBlockMatch = generatedCode.match(/```(?:tsx?|jsx?|typescript|javascript)?\n([\s\S]*?)\n```/);
-              if (codeBlockMatch) {
-                generatedCode = codeBlockMatch[1];
-              }
-
-              // Save the generated code
-              // Use screen.name to generate filename (matches what addScreenToApp will import)
-              const fileName = screen.name
-                .replace(/[^a-zA-Z0-9\s-]/g, '') // Remove special chars
-                .toLowerCase()
-                .replace(/\s+/g, '-')
-                .replace(/-+/g, '-') + '.tsx';
-              const filePath = path.join(pagesPath, fileName);
-              await fs.writeFile(filePath, generatedCode, 'utf-8');
-
-              // Update App.tsx to add this screen
-              const { ReactBoilerplateGenerator } = await import('../services/ReactBoilerplateGenerator');
-              const boilerplateGen = new ReactBoilerplateGenerator();
-              await boilerplateGen.addScreenToApp(
-                projectPath,
-                screen.name,
-                i === 0 // isFirstScreen
-              );
-
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'info',
-                  message: `✅ Updated App.tsx with ${screen.name}`,
-                },
-              });
-
-              // Check for compilation errors and attempt repair
-              const maxRepairAttempts = 3;
-              let repairAttempt = 0;
-              let finalCode = generatedCode;
-              let hasErrors = true;
-
-              while (hasErrors && repairAttempt < maxRepairAttempts) {
-                // Wait for webpack to compile
-                await new Promise(resolve => setTimeout(resolve, 3000));
-
-                // Get compilation output from dev server
-                const compilationOutput = devServer?.getCompilationOutput() || '';
-
-                // Check for errors
-                const errors = WebpackErrorParser.parseErrors(compilationOutput);
-
-                if (errors.length > 0 && repairAttempt < maxRepairAttempts) {
-                  repairAttempt++;
-
-                  webview.postMessage({
-                    type: 'build-log',
-                    projectName,
-                    entry: {
-                      timestamp: Date.now(),
-                      type: 'warning',
-                      message: `🔧 Compilation errors detected in ${screen.name}, attempting repair (${repairAttempt}/${maxRepairAttempts})...`,
-                    },
-                  });
-
-                  // Attempt repair
-                  const { CodeRepairService } = await import('../services/CodeRepairService');
-                  const repairService = new CodeRepairService(this.buildModeService['agentManager']);
-
-                  const repairResult = await repairService.repairCode(
-                    finalCode,
-                    errors,
-                    fileName,
-                    1 // Single attempt per loop iteration
-                  );
-
-                  if (repairResult.success && repairResult.repairedCode) {
-                    finalCode = repairResult.repairedCode;
-
-                    // Save repaired code
-                    await fs.writeFile(filePath, finalCode, 'utf-8');
-
-                    webview.postMessage({
-                      type: 'build-log',
-                      projectName,
-                      entry: {
-                        timestamp: Date.now(),
-                        type: 'success',
-                        message: `✅ Code repaired for ${screen.name} (attempt ${repairAttempt})`,
-                      },
-                    });
-
-                    // Clear compilation output for next check
-                    devServer?.clearCompilationOutput();
-                  } else {
-                    webview.postMessage({
-                      type: 'build-log',
-                      projectName,
-                      entry: {
-                        timestamp: Date.now(),
-                        type: 'error',
-                        message: `❌ Failed to repair ${screen.name}: ${repairResult.error}`,
-                      },
-                    });
-                    break;
-                  }
-                } else {
-                  hasErrors = false;
-                }
-              }
-
-              if (repairAttempt > 0 && !hasErrors) {
-                webview.postMessage({
-                  type: 'build-log',
-                  projectName,
-                  entry: {
-                    timestamp: Date.now(),
-                    type: 'success',
-                    message: `🎉 ${screen.name} successfully repaired after ${repairAttempt} attempt(s)`,
-                  },
-                });
-              }
-
-
-              // Verify compilation by checking dev server logs
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'info',
-                  message: `🔍 Verifying {screen.name} compiles...`,
-                },
-              });
-
-              // Wait a moment for webpack to detect the new file and compile
-              await new Promise(resolve => setTimeout(resolve, 3000));
-
-              // Check if dev server is still running (compilation successful)
-              // If there were compilation errors, they would appear in dev server logs
-              // For now, we'll assume success if we got this far
-              // TODO: Parse dev server output for compilation errors
-
-              await this.buildModeService['agentManager'].disposeAgent(codeGenConversationId);
-
-              webview.postMessage({
-                type: 'building-progress-update',
-                step: currentStep,
-                totalSteps,
-                agentId: `screen-${screen.id}`,
-                status: 'complete',
-                message: `${screen.name} generated`,
-                output: `Created ${fileName}`,
-              });
-
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'success',
-                  message: `✅ ${screen.name} → ${fileName}`,
-                },
-              });
-
-              // Update screen status to complete
-              this.buildModeService.updateScreenStatus(screen.name, 'complete');
-
-            } catch (error: any) {
-              await this.buildModeService['agentManager'].disposeAgent(codeGenConversationId);
-
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'error',
-                  message: `❌ Failed to generate ${screen.name}: ${error.message}`,
-                },
-              });
-
-              // Update screen status to failed
-              this.buildModeService.updateScreenStatus(screen.name, 'failed', error.message);
-
-              // Continue with other screens even if one fails
-              console.error(`[BuildModeHandler] Failed to generate screen ${screen.name}:`, error);
-            }
-
-            // Wait for webpack to finish compiling all screens
-            webview.postMessage({
-              type: 'build-log',
-              projectName,
-              entry: {
-                timestamp: Date.now(),
-                type: 'info',
-                message: '⏳ Waiting for webpack to finish compiling...',
-              },
-            });
-            await new Promise(resolve => setTimeout(resolve, 15000)); // 15 seconds
-
-            // Step 1.5e: Capture screenshots
-            currentStep++;
-            webview.postMessage({
-              type: 'building-progress-update',
-              step: currentStep,
-              totalSteps: totalSteps + 5,
-              agentId: 'screenshots',
-              status: 'in-progress',
-              message: 'Capturing screenshots...',
-            });
-
-            // Stop the old dev server to clear any cached state
-            const oldDevServer = (this.buildModeService as any)['activeDevServer'];
-            if (oldDevServer) {
-              await oldDevServer.stop();
-              delete (this.buildModeService as any)['activeDevServer'];
-
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'info',
-                  message: '🔄 Restarting dev server for fresh screenshots...',
-                },
-              });
-
-              // Wait a moment for port to be released
-              await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-
-            // Start fresh dev server
-            const { DevServerManager } = await import('../services/DevServerManager');
-            const freshDevServer = new DevServerManager();
-
-            const freshServerResult = await freshDevServer.start({
-              projectPath,
-              framework: framework || 'react',
-              port: 3000,
-              timeout: 120000,
-              onLog: (message) => {
-                webview.postMessage({
-                  type: 'build-log',
-                  projectName,
-                  entry: {
-                    timestamp: Date.now(),
-                    type: 'info',
-                    message: `🚀 ${message}`,
-                  },
-                });
-              },
-              onReady: () => {
-                webview.postMessage({
-                  type: 'build-log',
-                  projectName,
-                  entry: {
-                    timestamp: Date.now(),
-                    type: 'success',
-                    message: `✅ Fresh dev server ready at http://localhost:3000`,
-                  },
-                });
-              },
-            });
-
-            if (!freshServerResult.success) {
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'error',
-                  message: `❌ Dev server failed to start: ${freshServerResult.error}. Skipping screenshots.`,
-                },
-              });
-
-              // Continue without screenshots
-              webview.postMessage({
-                type: 'building-workflow-complete',
-                projectName,
-                iteration: 1,
-              });
-              return;
-            }
-
-            // Check for compilation errors before capturing screenshots
-            const compilationOutput = freshDevServer?.getCompilationOutput() || '';
-            if (compilationOutput.includes('Failed to compile') || compilationOutput.includes('ERROR in')) {
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'error',
-                  message: `❌ Webpack compilation errors detected. Skipping screenshots. Please check the dev server output.`,
-                },
-              });
-
-              await freshDevServer.stop();
-
-              webview.postMessage({
-                type: 'building-workflow-complete',
-                projectName,
-                iteration: 1,
-              });
-              return;
-            }
-
-            // Store fresh server for cleanup
-            (this.buildModeService as any)['activeDevServer'] = freshDevServer;
-
-            const { ScreenshotService } = await import('../services/ScreenshotService');
-            const screenshotService = new ScreenshotService();
-
-            try {
-              await screenshotService.initialize();
-
-              // Capture screenshot for each screen
-              for (let i = 0; i < screens.length; i++) {
-                const screen = screens[i];
-
-                webview.postMessage({
-                  type: 'build-log',
-                  projectName,
-                  entry: {
-                    timestamp: Date.now(),
-                    type: 'info',
-                    message: `📸 Capturing screenshot: ${screen.name}`,
-                  },
-                });
-
-                // Determine route for this screen
-                const route = i === 0 ? '/' : `/${screen.name.toLowerCase().replace(/\s+/g, '-')}`;
-                const url = `http://localhost:3000${route}`;
-
-                // Capture screenshot
-                const screenshotResult = await screenshotService.capture({
-                  url,
-                  viewport: { width: 1280, height: 720 },
-                  waitForTimeout: 3000, // Wait for React to render
-                });
-
-                if (screenshotResult.success && screenshotResult.data) {
-                  // Save to .personaut/{project}/iterations/{n}/{screen-name}.png
-                  const screenshotPath = await this.stageManager.saveScreenshot(
-                    projectName,
-                    iteration,
-                    screen.name,
-                    screenshotResult.data
-                  );
-
-                  webview.postMessage({
-                    type: 'build-log',
-                    projectName,
-                    entry: {
-                      timestamp: Date.now(),
-                      type: 'success',
-                      message: `✅ Screenshot saved: ${path.basename(screenshotPath)}`,
-                    },
-                  });
-
-                  // Also save to project screenshots folder for easy access
-                  const projectScreenshotDir = path.join(projectPath, 'screenshots');
-                  await fs.mkdir(projectScreenshotDir, { recursive: true });
-                  await fs.writeFile(
-                    path.join(projectScreenshotDir, `${screen.name.toLowerCase().replace(/\s+/g, '-')}.png`),
-                    screenshotResult.data
-                  );
-                } else {
-                  webview.postMessage({
-                    type: 'build-log',
-                    projectName,
-                    entry: {
-                      timestamp: Date.now(),
-                      type: 'warning',
-                      message: `⚠️ Screenshot failed for ${screen.name}: ${screenshotResult.error}`,
-                    },
-                  });
-                }
-              }
-
-              await screenshotService.close();
-
-              webview.postMessage({
-                type: 'building-progress-update',
-                step: currentStep,
-                totalSteps: totalSteps + 5,
-                agentId: 'screenshots',
-                status: 'complete',
-                message: 'Screenshots captured',
-              });
-            } catch (error: any) {
-              console.error('[BuildModeHandler] Screenshot capture failed:', error);
-              webview.postMessage({
-                type: 'build-log',
-                projectName,
-                entry: {
-                  timestamp: Date.now(),
-                  type: 'warning',
-                  message: `⚠️ Screenshot capture failed: ${error.message}`,
-                },
-              });
-            }
-          }
-        }
-
-        // Step 3: Completion
-        currentStep++;
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps,
-          agentId: 'completion',
-          status: 'complete',
-          message: 'Build workflow complete',
-        });
-
-        webview.postMessage({
-          type: 'build-log',
-          projectName,
-          entry: {
-            timestamp: Date.now(),
-            type: 'success',
-            message: `🎉 Generated ${screens.length} screens in ${projectPath}`,
-          },
-        });
-
-        // Save iteration data
-        await this.stageManager.writeStageFile(
-          projectName,
-          'building',
-          {
-            iteration,
-            screens,
-            framework,
-            projectPath,
-            timestamp: Date.now(),
-          },
-          false
-        );
-
-        // Clean up cancel handler
-        delete (this.buildModeService as any)['cancelBuild'];
-
-        // Clean up dev server
-        const activeDevServer = (this.buildModeService as any)['activeDevServer'];
-        if (activeDevServer) {
-          activeDevServer.stop();
-          delete (this.buildModeService as any)['activeDevServer'];
-          webview.postMessage({
-            type: 'build-log',
-            projectName,
-            entry: {
-              timestamp: Date.now(),
-              type: 'info',
-              message: '🛑 Dev server stopped',
-            },
-          });
-        }
-
-        if (this.buildModeService.isBuildCancelled()) {
-          webview.postMessage({
-            type: 'building-workflow-cancelled',
-            projectName,
-            iterationNumber: iteration,
-          });
-        } else {
-          // Mark build as complete
-          this.buildModeService.completeActiveBuild('complete');
-
-          webview.postMessage({
-            type: 'building-workflow-complete',
-            projectName,
-            iterationNumber: iteration,
-            projectPath,
-          });
-
-          // Clear active build state after a short delay (allow UI to process)
-          setTimeout(() => {
-            this.buildModeService.clearActiveBuildState();
-          }, 1000);
-        }
-
-      } catch (error: any) {
-        console.error('[BuildModeHandler] Screen-based build workflow failed:', error);
-
-        // Mark build as failed
-        this.buildModeService.completeActiveBuild('failed');
-
-        webview.postMessage({
-          type: 'build-log',
-          projectName,
-          entry: {
-            timestamp: Date.now(),
-            type: 'error',
-            message: `❌ Build failed: ${error.message}`,
-          },
-        });
-
-        webview.postMessage({
-          type: 'building-workflow-error',
-          projectName,
-          error: this.errorSanitizer.sanitize(error).userMessage,
-        });
-
-        // Clear active build state after error
-        setTimeout(() => {
-          this.buildModeService.clearActiveBuildState();
-        }, 1000);
-      }
-
-      return;
-    }
-
-
-    // Notify start
-    webview.postMessage({
-      type: 'building-workflow-started',
-      projectName,
-      iterationNumber: iteration,
-    });
-
-    try {
-      const totalSteps = 3 + (personas?.length || 0); // UX + Dev + Feedback per persona
-      let currentStep = 0;
-
-      // Step 1: UX Agent - Generate design requirements
-      currentStep++;
-      webview.postMessage({
-        type: 'building-progress-update',
-        step: currentStep,
-        totalSteps,
-        agentId: 'ux-agent',
-        status: 'running',
-        message: 'UX Designer is creating design requirements...',
-      });
-
-      const uxConversationId = `building-ux-${projectName}-${iteration}-${Date.now()}`;
-      let designRequirements = '';
-
-      try {
-        const uxAgent = await this.buildModeService['agentManager'].getOrCreateAgent(uxConversationId, 'build');
-
-        const uxSystemPrompt = `You are a senior UX Designer. Your task is to create design requirements for a feature implementation.
-${previousFeedback ? `\nPrevious iteration feedback to address:\n${previousFeedback}` : ''}
-
-Focus on:
-1. UI components and layout
-2. User interactions and flows
-3. Accessibility requirements
-4. Visual design guidelines
-5. Error states and edge cases`;
-
-        const uxPrompt = `Create design requirements for this user story:
-
-${userStory.title || userStory}
-${userStory.description ? `\nDescription: ${userStory.description}` : ''}
-${userStory.acceptanceCriteria ? `\nAcceptance Criteria:\n${userStory.acceptanceCriteria.map((c: string) => `- ${c}`).join('\n')}` : ''}
-
-Framework: ${framework || 'React'}
-
-Provide detailed design requirements including:
-1. Component structure
-2. Layout specifications
-3. User interaction details
-4. Responsive behavior
-5. Accessibility considerations`;
-
-        await uxAgent.chat(uxPrompt, [], {}, uxSystemPrompt, false);
-
-        const uxConversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(uxConversationId);
-        const uxLastMsg = uxConversation?.messages.filter((m: any) => m.role === 'model').pop();
-        designRequirements = uxLastMsg?.text || '';
-
-        await this.buildModeService['agentManager'].disposeAgent(uxConversationId);
-
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps,
-          agentId: 'ux-agent',
-          status: 'complete',
-          message: 'Design requirements created',
-          output: designRequirements,
-        });
-      } catch (error: any) {
-        await this.buildModeService['agentManager'].disposeAgent(uxConversationId);
-        throw new Error(`UX design failed: ${error.message}`);
-      }
-
-      // Step 2: Developer Agent - Implement the feature
-      currentStep++;
-      webview.postMessage({
-        type: 'building-progress-update',
-        step: currentStep,
-        totalSteps,
-        agentId: 'developer-agent',
-        status: 'running',
-        message: 'Developer is implementing the feature...',
-      });
-
-      const devConversationId = `building-dev-${projectName}-${iteration}-${Date.now()}`;
-      let implementationSummary = '';
-
-      try {
-        const devAgent = await this.buildModeService['agentManager'].getOrCreateAgent(devConversationId, 'build');
-
-        const devSystemPrompt = `You are a senior full-stack developer using ${framework || 'React'}.
-Your task is to implement a feature based on design requirements.
-
-Provide:
-1. File structure and component organization
-2. Key code snippets (in code blocks)
-3. Implementation notes
-4. Testing considerations`;
-
-        const devPrompt = `Implement the following feature based on these design requirements:
-
-USER STORY:
-${userStory.title || userStory}
-
-DESIGN REQUIREMENTS:
-${designRequirements}
-
-Provide a detailed implementation plan with code examples.`;
-
-        await devAgent.chat(devPrompt, [], {}, devSystemPrompt, false);
-
-        const devConversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(devConversationId);
-        const devLastMsg = devConversation?.messages.filter((m: any) => m.role === 'model').pop();
-        implementationSummary = devLastMsg?.text || '';
-
-        await this.buildModeService['agentManager'].disposeAgent(devConversationId);
-
-        webview.postMessage({
-          type: 'building-progress-update',
-          step: currentStep,
-          totalSteps,
-          agentId: 'developer-agent',
-          status: 'complete',
-          message: 'Implementation complete',
-          output: implementationSummary,
-        });
-      } catch (error: any) {
-        await this.buildModeService['agentManager'].disposeAgent(devConversationId);
-        throw new Error(`Development failed: ${error.message}`);
-      }
-
-      // Step 3: User Feedback Agents - Get feedback from personas
-      const feedbackResults: any[] = [];
-
-      if (personas && personas.length > 0) {
-        const feedbackPromises = personas.map(async (persona: any) => {
-          currentStep++;
-          webview.postMessage({
-            type: 'building-progress-update',
-            step: currentStep,
-            totalSteps,
-            agentId: `feedback-${persona.id}`,
-            status: 'running',
-            message: `${persona.name} is reviewing the implementation...`,
-          });
-
-          const feedbackConversationId = `building-feedback-${projectName}-${persona.id}-${iteration}-${Date.now()}`;
-
-          try {
-            const feedbackAgent = await this.buildModeService['agentManager'].getOrCreateAgent(feedbackConversationId, 'build');
-
-            const feedbackSystemPrompt = `You are ${persona.name}. ${persona.backstory || ''}
-You are reviewing a new feature implementation as a potential user.
-
-Provide honest feedback from your perspective:
-1. Overall rating (1-10)
-2. What works well
-3. What needs improvement
-4. Specific suggestions
-5. Would you use this? Why or why not?`;
-
-            const feedbackPrompt = `Review this implementation:
-
-USER STORY: ${userStory.title || userStory}
-
-DESIGN REQUIREMENTS:
-${designRequirements.substring(0, 1000)}...
-
-IMPLEMENTATION:
-${implementationSummary.substring(0, 1000)}...
-
-Provide your feedback as JSON:
-{
-  "rating": 8,
-  "positives": ["What works well"],
-  "improvements": ["What needs work"],
-  "suggestions": ["Specific suggestions"],
-  "wouldUse": true,
-  "reason": "Why or why not"
-}`;
-
-            await feedbackAgent.chat(feedbackPrompt, [], {}, feedbackSystemPrompt, false);
-
-            const feedbackConversation = await this.buildModeService['agentManager']['config'].conversationManager.getConversation(feedbackConversationId);
-            const feedbackLastMsg = feedbackConversation?.messages.filter((m: any) => m.role === 'model').pop();
-
-            let feedback: any = { personaId: persona.id, personaName: persona.name, rating: 7 };
-            if (feedbackLastMsg?.text) {
-              try {
-                const jsonMatch = feedbackLastMsg.text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) ||
-                  feedbackLastMsg.text.match(/\{[\s\S]*\}/);
-                const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : feedbackLastMsg.text;
-                feedback = { ...feedback, ...JSON.parse(jsonStr) };
-              } catch (e) {
-                feedback = { ...feedback, raw: feedbackLastMsg.text };
-              }
-            }
-
-            await this.buildModeService['agentManager'].disposeAgent(feedbackConversationId);
-
-            webview.postMessage({
-              type: 'building-progress-update',
-              step: currentStep,
-              totalSteps,
-              agentId: `feedback-${persona.id}`,
-              status: 'complete',
-              message: `${persona.name} completed review (Rating: ${feedback.rating}/10)`,
-            });
-
-            return feedback;
-          } catch (error: any) {
-            await this.buildModeService['agentManager'].disposeAgent(feedbackConversationId);
-            return {
-              personaId: persona.id,
-              personaName: persona.name,
-              error: error.message,
-              rating: 0,
-            };
-          }
-        });
-
-        feedbackResults.push(...await Promise.all(feedbackPromises));
-      }
-
-      // Calculate aggregated feedback
-      const validFeedback = feedbackResults.filter((f) => f.rating > 0);
-      const averageRating = validFeedback.length > 0
-        ? validFeedback.reduce((sum, f) => sum + f.rating, 0) / validFeedback.length
-        : 0;
-
-      const aggregatedFeedback = {
-        averageRating: Math.round(averageRating * 10) / 10,
-        totalResponses: feedbackResults.length,
-        positives: feedbackResults.flatMap((f) => f.positives || []).slice(0, 5),
-        improvements: feedbackResults.flatMap((f) => f.improvements || []).slice(0, 5),
-        suggestions: feedbackResults.flatMap((f) => f.suggestions || []).slice(0, 5),
-      };
-
-      // Save iteration data
-      await this.stageManager.saveIterationFeedback(projectName, iteration, feedbackResults);
-
-      // Send completion
-      webview.postMessage({
-        type: 'building-workflow-complete',
-        projectName,
-        iterationNumber: iteration,
-        designRequirements,
-        implementationSummary,
-        feedback: feedbackResults,
-        aggregatedFeedback,
-      });
-
-      console.log('[BuildModeHandler] Building workflow completed:', {
-        projectName,
-        iteration,
-        averageRating: aggregatedFeedback.averageRating,
-      });
-    } catch (error: any) {
-      console.error('[BuildModeHandler] Building workflow failed:', error);
-      webview.postMessage({
-        type: 'building-workflow-error',
-        projectName,
-        iterationNumber: iteration,
-        error: this.errorSanitizer.sanitize(error).userMessage,
-      });
-    }
-  }
-
-  /**
-   * Handle errors and send sanitized error messages to webview.
-   */
-  private async handleError(
-    error: unknown,
-    webview: any,
-    messageType: string
-  ): Promise<void> {
-    const errorObj = error instanceof Error ? error : new Error(String(error));
-    const sanitizedError = this.errorSanitizer.sanitize(errorObj);
-
-    console.error(`[BuildModeHandler] Error handling ${messageType}:`, error);
-
-    webview.postMessage({
-      type: 'error',
-      message: sanitizedError.userMessage,
-      context: 'build-mode',
-    });
-  }
-
-  /**
-   * Handle pause building workflow request (Task 21.11)
-   */
-  private async handlePauseBuildingWorkflow(
-    message: WebviewMessage,
-    webview: any
-  ): Promise<void> {
-    const { projectName, iterationNumber } = message;
-    if (!projectName) {
-      throw new Error('Project name is required to pause workflow');
-    }
-
-    // Send immediate feedback that stop was requested
-    webview.postMessage({
-      type: 'build-stopping',
-      projectName,
-    });
-
-    console.log(`[BuildModeHandler] Stopping building workflow for: ${projectName}`);
-
-    // Trigger cancellation if there's an active build
-    if ((this.buildModeService as any)['cancelBuild']) {
-      (this.buildModeService as any)['cancelBuild']();
-    }
-
-    const pausedAt = Date.now();
-
-    // Save paused state as consolidated feedback (as a marker)
-    await this.stageManager.saveConsolidatedFeedback(
-      projectName,
-      iterationNumber || 1,
-      `# Workflow Paused\n\nPaused at: ${new Date(pausedAt).toISOString()}\n\nThis workflow was paused by the user and can be resumed.`
-    );
-
-    webview.postMessage({
-      type: 'building-workflow-paused',
-      projectName,
-      pausedAt,
-    });
-
-    console.log(`[BuildModeHandler] Building workflow paused for: ${projectName}`);
-  }
-
-  /**
-   * Handle resume building workflow request (Task 21.11)
-   */
-  private async handleResumeBuildingWorkflow(
-    message: WebviewMessage,
-    webview: any
-  ): Promise<void> {
-    const { projectName, iterationNumber, userStory, framework: _framework, personas: _personas } = message;
-    if (!projectName) {
-      throw new Error('Project name is required to resume workflow');
-    }
-
-    console.log(`[BuildModeHandler] Resuming building workflow for: ${projectName}`);
-
-    // Load the saved workflow state
-    const iterationData = await this.stageManager.loadIterationData(
-      projectName,
-      iterationNumber || 1
-    );
-
-    // Check if we have paused state (consolidatedFeedback contains "Workflow Paused")
-    const isPaused = iterationData?.consolidatedFeedback?.includes('# Workflow Paused');
-
-    if (!isPaused) {
-      webview.postMessage({
-        type: 'building-workflow-error',
-        error: 'No paused workflow found to resume',
-        projectName,
-      });
-      return;
-    }
-
-    webview.postMessage({
-      type: 'building-workflow-resumed',
-      projectName,
-      iterationNumber: iterationNumber || 1,
-    });
-
-    // Restart the workflow if we have the user story
-    if (userStory) {
-      await this.handleStartBuildingWorkflow(
-        { ...message, type: 'start-building-workflow' },
-        webview
-      );
-    }
-
-    console.log(`[BuildModeHandler] Building workflow resumed for: ${projectName}`);
-  }
 
   /**
    * Handle save survey response request
@@ -4364,5 +2867,1719 @@ Provide your feedback as JSON:
         error: error.message,
       });
     }
+  }
+
+  /**
+   * Handle error and send sanitized message to webview
+   * @private
+   */
+  private async handleError(
+    error: unknown,
+    webview: any,
+    messageType: string
+  ): Promise<void> {
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    const sanitizedError = this.errorSanitizer.sanitize(errorObj);
+
+    console.error(`[BuildModeHandler] Error handling ${messageType}:`, error);
+
+    webview.postMessage({
+      type: 'error',
+      message: sanitizedError.userMessage,
+      context: 'build-mode',
+    });
+  }
+
+  /**
+   * Handle pause building workflow request (Task 21.11)
+   */
+  private async handlePauseBuildingWorkflow(
+    message: WebviewMessage,
+    webview: any
+  ): Promise<void> {
+    const { projectName, iterationNumber } = message;
+    if (!projectName) {
+      throw new Error('Project name is required to pause workflow');
+    }
+
+    // Send immediate feedback that stop was requested
+    webview.postMessage({
+      type: 'build-stopping',
+      projectName,
+    });
+
+    console.log(`[BuildModeHandler] Stopping building workflow for: ${projectName}`);
+
+    // Trigger cancellation if there's an active build
+    if ((this.buildModeService as any)['cancelBuild']) {
+      (this.buildModeService as any)['cancelBuild']();
+    }
+
+    const pausedAt = Date.now();
+
+    // Save paused state as consolidated feedback (as a marker)
+    await this.stageManager.saveConsolidatedFeedback(
+      projectName,
+      iterationNumber || 1,
+      `# Workflow Paused\n\nPaused at: ${new Date(pausedAt).toISOString()}\n\nThis workflow was paused by the user and can be resumed.`
+    );
+
+    webview.postMessage({
+      type: 'building-workflow-paused',
+      projectName,
+      pausedAt,
+    });
+
+    console.log(`[BuildModeHandler] Building workflow paused for: ${projectName}`);
+  }
+
+  /**
+   * Send a build log entry to the webview
+   */
+  private sendBuildLog(
+    webview: any,
+    message: string,
+    logType: 'info' | 'success' | 'error' | 'warning' = 'info',
+    stage = 'finalize'
+  ): void {
+    webview.postMessage({
+      type: 'build-log',
+      entry: {
+        timestamp: Date.now(),
+        type: logType,
+        stage,
+        message,
+      },
+    });
+  }
+
+  /**
+   * Write a markdown export file directly to the project exports directory
+   */
+  private async writeMarkdownExport(projectName: string, fileName: string, content: string): Promise<string> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      throw new Error('No workspace folder found');
+    }
+
+    // Create exports directory in the project folder
+    const exportsDir = path.join(workspaceRoot, '.personaut', projectName, 'exports');
+    await fs.promises.mkdir(exportsDir, { recursive: true });
+
+    // Write the markdown file
+    const filePath = path.join(exportsDir, fileName);
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+
+    console.log(`[BuildModeHandler] Wrote export file: ${filePath}`);
+    return filePath;
+  }
+
+  /**
+   * Handle export document request (Finalize stage)
+   */
+  private async handleExportDocument(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, documentType } = message;
+    if (!projectName || !documentType) {
+      throw new Error('Project name and document type are required');
+    }
+
+    this.validateProjectName(projectName);
+    this.sendBuildLog(webview, `Exporting ${documentType}...`, 'info');
+
+    try {
+      let documentData: any = null;
+      let fileName = '';
+
+      switch (documentType) {
+        case 'task-list':
+          documentData = await this.buildModeService.loadStage(projectName, 'tasks');
+          fileName = 'task-list.md';
+          break;
+        case 'steering-document':
+          documentData = await this.buildModeService.loadStage(projectName, 'steering');
+          fileName = 'steering-document.md';
+          break;
+        default:
+          throw new Error(`Unknown document type: ${documentType}`);
+      }
+
+      const markdownContent = this.formatDocumentAsMarkdown(documentType, documentData, projectName);
+      // Write actual markdown file
+      const filePath = await this.writeMarkdownExport(projectName, fileName, markdownContent);
+      // Also save as structured data for reference
+      await this.buildModeService.saveStage(projectName, `export-${documentType}`, { content: markdownContent, fileName, filePath, exportedAt: new Date().toISOString() }, true);
+
+      this.sendBuildLog(webview, `✓ Exported ${fileName} to exports/`, 'success');
+
+      webview.postMessage({
+        type: 'document-exported',
+        projectName,
+        documentType,
+        fileName,
+        filePath,
+        success: true,
+      });
+    } catch (error: any) {
+      this.sendBuildLog(webview, `✗ Failed to export ${documentType}: ${this.errorSanitizer.sanitize(error).userMessage}`, 'error');
+
+      webview.postMessage({
+        type: 'document-export-failed',
+        projectName,
+        documentType,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle export all documents request (Finalize stage)
+   */
+  private async handleExportAllDocuments(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName } = message;
+    if (!projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(projectName);
+    this.sendBuildLog(webview, 'Exporting comprehensive project documentation...', 'info');
+
+    const exportResults: { documentType: string; success: boolean; fileName?: string; error?: string }[] = [];
+
+    // Export Task List (using comprehensive generation with full build data)
+    try {
+      const taskMarkdown = this.generateTaskListFromBuildData(message);
+      const taskPath = await this.writeMarkdownExport(projectName, 'task-list.md', taskMarkdown);
+      await this.buildModeService.saveStage(projectName, 'export-task-list', { content: taskMarkdown, fileName: 'task-list.md', filePath: taskPath, exportedAt: new Date().toISOString() }, true);
+      exportResults.push({ documentType: 'task-list', success: true, fileName: 'task-list.md' });
+      this.sendBuildLog(webview, `✓ Exported task-list.md to exports/`, 'success');
+    } catch (error: any) {
+      exportResults.push({ documentType: 'task-list', success: false, error: error.message });
+      this.sendBuildLog(webview, `✗ Failed to export task list: ${error.message}`, 'error');
+    }
+
+    // Export Steering Document (using comprehensive generation with full build data)
+    try {
+      const steeringMarkdown = this.generateSteeringDocumentFromBuildData(message);
+      const steeringPath = await this.writeMarkdownExport(projectName, 'steering-document.md', steeringMarkdown);
+      await this.buildModeService.saveStage(projectName, 'export-steering-document', { content: steeringMarkdown, fileName: 'steering-document.md', filePath: steeringPath, exportedAt: new Date().toISOString() }, true);
+      exportResults.push({ documentType: 'steering-document', success: true, fileName: 'steering-document.md' });
+      this.sendBuildLog(webview, `✓ Exported steering-document.md to exports/`, 'success');
+    } catch (error: any) {
+      exportResults.push({ documentType: 'steering-document', success: false, error: error.message });
+      this.sendBuildLog(webview, `✗ Failed to export steering document: ${error.message}`, 'error');
+    }
+
+    // Export Comprehensive Project Documentation (NEW)
+    try {
+      const fullDocMarkdown = this.generateComprehensiveDocumentation(message);
+      const fullDocPath = await this.writeMarkdownExport(projectName, 'project-documentation.md', fullDocMarkdown);
+      await this.buildModeService.saveStage(projectName, 'export-project-documentation', { content: fullDocMarkdown, fileName: 'project-documentation.md', filePath: fullDocPath, exportedAt: new Date().toISOString() }, true);
+      exportResults.push({ documentType: 'project-documentation', success: true, fileName: 'project-documentation.md' });
+      this.sendBuildLog(webview, `✓ Exported project-documentation.md to exports/`, 'success');
+    } catch (error: any) {
+      exportResults.push({ documentType: 'project-documentation', success: false, error: error.message });
+      this.sendBuildLog(webview, `✗ Failed to export project documentation: ${error.message}`, 'error');
+    }
+
+    // Export Requirements Document (NEW)
+    try {
+      const requirementsMarkdown = this.generateRequirementsDocument(message);
+      const requirementsPath = await this.writeMarkdownExport(projectName, 'requirements.md', requirementsMarkdown);
+      await this.buildModeService.saveStage(projectName, 'export-requirements', { content: requirementsMarkdown, fileName: 'requirements.md', filePath: requirementsPath, exportedAt: new Date().toISOString() }, true);
+      exportResults.push({ documentType: 'requirements', success: true, fileName: 'requirements.md' });
+      this.sendBuildLog(webview, `✓ Exported requirements.md to exports/`, 'success');
+    } catch (error: any) {
+      exportResults.push({ documentType: 'requirements', success: false, error: error.message });
+      this.sendBuildLog(webview, `✗ Failed to export requirements document: ${error.message}`, 'error');
+    }
+
+    const successCount = exportResults.filter(r => r.success).length;
+    this.sendBuildLog(webview, `Exported ${successCount}/${exportResults.length} documents`, successCount === exportResults.length ? 'success' : 'warning');
+
+    webview.postMessage({
+      type: 'all-documents-exported',
+      projectName,
+      results: exportResults,
+      success: exportResults.every(r => r.success),
+    });
+  }
+
+  /**
+   * Handle view document request (Finalize stage)
+   */
+  private async handleViewDocument(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName, documentType } = message;
+    if (!projectName || !documentType) {
+      throw new Error('Project name and document type are required');
+    }
+
+    this.validateProjectName(projectName);
+
+    try {
+      let stage = '';
+      switch (documentType) {
+        case 'task-list':
+          stage = 'tasks';
+          break;
+        case 'steering-document':
+          stage = 'steering';
+          break;
+        default:
+          throw new Error(`Unknown document type: ${documentType}`);
+      }
+
+      const documentData = await this.buildModeService.loadStage(projectName, stage);
+      const markdownContent = this.formatDocumentAsMarkdown(documentType, documentData, projectName);
+
+      webview.postMessage({
+        type: 'document-content',
+        projectName,
+        documentType,
+        content: markdownContent,
+      });
+    } catch (error: any) {
+      webview.postMessage({
+        type: 'document-view-failed',
+        projectName,
+        documentType,
+        error: this.errorSanitizer.sanitize(error).userMessage,
+      });
+    }
+  }
+
+  /**
+   * Handle generate task list request (Finalize stage)
+   */
+  private async handleGenerateTaskList(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName } = message;
+    if (!projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(projectName);
+    this.sendBuildLog(webview, 'Generating comprehensive task list...', 'info');
+
+    // Use new comprehensive generation with all build data
+    const taskListMarkdown = this.generateTaskListFromBuildData(message);
+    await this.buildModeService.saveStage(projectName, 'tasks', { content: taskListMarkdown, generatedAt: new Date().toISOString() }, true);
+
+    this.sendBuildLog(webview, '✓ Comprehensive task list generated', 'success');
+
+    webview.postMessage({
+      type: 'task-list-generated',
+      projectName,
+      content: taskListMarkdown,
+      success: true,
+    });
+  }
+
+  /**
+   * Handle generate steering document request (Finalize stage)
+   */
+  private async handleGenerateSteeringDocument(message: WebviewMessage, webview: any): Promise<void> {
+    const { projectName } = message;
+    if (!projectName) {
+      throw new Error('Project name is required');
+    }
+
+    this.validateProjectName(projectName);
+    this.sendBuildLog(webview, 'Generating comprehensive steering document...', 'info');
+
+    // Use new comprehensive generation with all build data
+    const steeringMarkdown = this.generateSteeringDocumentFromBuildData(message);
+    await this.buildModeService.saveStage(projectName, 'steering', { content: steeringMarkdown, generatedAt: new Date().toISOString() }, true);
+
+    this.sendBuildLog(webview, '✓ Comprehensive steering document generated', 'success');
+
+    webview.postMessage({
+      type: 'steering-document-generated',
+      projectName,
+      content: steeringMarkdown,
+      success: true,
+    });
+  }
+
+  /**
+   * Format document data as markdown
+   */
+  private formatDocumentAsMarkdown(documentType: string, data: any, projectName: string): string {
+    const timestamp = new Date().toISOString();
+
+    switch (documentType) {
+      case 'task-list': {
+        const tasksData = data?.tasks || [];
+        let md = `# Task List: ${projectName}\n\nGenerated: ${timestamp}\n\n## Tasks\n\n`;
+        tasksData.forEach((task: any, index: number) => {
+          md += `### ${index + 1}. ${task.title || task.name || 'Untitled Task'}\n\n`;
+          md += `**Priority:** ${task.priority || 'P1'} | **Complexity:** ${task.complexity || 'medium'} | **Estimated Effort:** ${task.estimatedHours || this.estimateEffort(task.complexity)}h\n\n`;
+          if (task.description) md += `**Description:** ${task.description}\n\n`;
+          if (task.acceptanceCriteria && task.acceptanceCriteria.length > 0) {
+            md += `**Acceptance Criteria:**\n`;
+            task.acceptanceCriteria.forEach((ac: string) => md += `- [ ] ${ac}\n`);
+            md += '\n';
+          }
+          if (task.dependencies && task.dependencies.length > 0) {
+            md += `**Dependencies:** ${task.dependencies.join(', ')}\n\n`;
+          }
+          if (task.technicalNotes) md += `**Technical Notes:** ${task.technicalNotes}\n\n`;
+          md += '---\n\n';
+        });
+
+        // Summary section
+        md += `## Summary\n\n`;
+        md += `| Metric | Count |\n`;
+        md += `|--------|-------|\n`;
+        md += `| Total Tasks | ${tasksData.length} |\n`;
+        md += `| P0 (Critical) | ${tasksData.filter((t: any) => t.priority === 'P0').length} |\n`;
+        md += `| P1 (High) | ${tasksData.filter((t: any) => t.priority === 'P1').length} |\n`;
+        md += `| P2 (Medium) | ${tasksData.filter((t: any) => t.priority === 'P2').length} |\n`;
+        md += `| P3 (Low) | ${tasksData.filter((t: any) => t.priority === 'P3').length} |\n\n`;
+
+        return md;
+      }
+
+      case 'steering-document': {
+        let md = `# Steering Document: ${projectName}\n\n`;
+        md += `> Generated: ${timestamp}\n\n`;
+        md += `---\n\n`;
+
+        // Table of Contents
+        md += `## Table of Contents\n\n`;
+        md += `1. [Project Overview](#project-overview)\n`;
+        md += `2. [Tech Stack](#tech-stack)\n`;
+        md += `3. [Architecture](#architecture)\n`;
+        md += `4. [Coding Standards](#coding-standards)\n`;
+        md += `5. [Quality Requirements](#quality-requirements)\n`;
+        md += `6. [File Structure](#file-structure)\n`;
+        md += `7. [Testing Strategy](#testing-strategy)\n`;
+        md += `8. [Deployment](#deployment)\n`;
+        md += `9. [Constraints & Assumptions](#constraints--assumptions)\n\n`;
+        md += `---\n\n`;
+
+        // Project Overview
+        md += `## Project Overview\n\n`;
+        md += `${data?.overview || `${projectName} is a modern web application designed to deliver an exceptional user experience.`}\n\n`;
+        if (data?.goals) {
+          md += `### Goals\n\n`;
+          (data.goals as string[]).forEach((goal: string) => md += `- ${goal}\n`);
+          md += '\n';
+        }
+        if (data?.targetAudience) md += `### Target Audience\n\n${data.targetAudience}\n\n`;
+
+        // Tech Stack
+        md += `## Tech Stack\n\n`;
+        md += `### Core Framework\n\n`;
+        md += `- **Framework:** ${data?.framework || 'React'}\n`;
+        md += `- **Language:** TypeScript (recommended)\n`;
+        md += `- **Build Tool:** Vite or Create React App\n\n`;
+
+        md += `### Styling\n\n`;
+        md += `- CSS-in-JS (styled-components or emotion) OR\n`;
+        md += `- CSS Modules with SCSS\n`;
+        md += `- Design system tokens for consistency\n\n`;
+
+        md += `### State Management\n\n`;
+        md += `- React Context for simple state\n`;
+        md += `- Zustand or Redux Toolkit for complex state\n`;
+        md += `- React Query for server state\n\n`;
+
+        md += `### Additional Libraries\n\n`;
+        md += `- Testing: Vitest + React Testing Library\n`;
+        md += `- Routing: React Router v6\n`;
+        md += `- Forms: React Hook Form + Zod validation\n`;
+        md += `- Icons: Lucide React or similar\n\n`;
+
+        // Architecture
+        md += `## Architecture\n\n`;
+        md += `### Architectural Pattern\n\n`;
+        md += `${data?.architecturalPatterns || 'Feature-based architecture with clear separation of concerns.'}\n\n`;
+
+        md += `### Key Principles\n\n`;
+        md += `1. **Component Composition** - Build complex UIs from simple, reusable components\n`;
+        md += `2. **Single Responsibility** - Each component/module has one clear purpose\n`;
+        md += `3. **Dependency Injection** - Inject dependencies for testability\n`;
+        md += `4. **Immutability** - Prefer immutable data structures\n`;
+        md += `5. **Declarative UI** - Describe what to render, not how\n\n`;
+
+        // Coding Standards
+        md += `## Coding Standards\n\n`;
+        md += `### General Guidelines\n\n`;
+        md += `${data?.codingStandards || '- Write clean, self-documenting code\n- Use meaningful variable and function names\n- Keep functions small and focused\n- Avoid deep nesting (max 3 levels)\n- Use early returns to reduce complexity'}\n\n`;
+
+        md += `### Naming Conventions\n\n`;
+        md += `| Type | Convention | Example |\n`;
+        md += `|------|------------|--------|\n`;
+        md += `| Components | PascalCase | \`UserProfile.tsx\` |\n`;
+        md += `| Hooks | camelCase with \`use\` prefix | \`useAuth.ts\` |\n`;
+        md += `| Utils | camelCase | \`formatDate.ts\` |\n`;
+        md += `| Constants | SCREAMING_SNAKE_CASE | \`API_BASE_URL\` |\n`;
+        md += `| Types/Interfaces | PascalCase | \`UserData\` |\n\n`;
+
+        md += `### Component Structure\n\n`;
+        md += `\`\`\`tsx\n`;
+        md += `// 1. Imports (external, then internal)\n`;
+        md += `// 2. Types/Interfaces\n`;
+        md += `// 3. Component definition\n`;
+        md += `// 4. Hooks (state, effects, custom)\n`;
+        md += `// 5. Event handlers\n`;
+        md += `// 6. Render logic\n`;
+        md += `// 7. Export\n`;
+        md += `\`\`\`\n\n`;
+
+        // Quality Requirements
+        md += `## Quality Requirements\n\n`;
+        md += `### Performance\n\n`;
+        md += `- First Contentful Paint (FCP) < 1.8s\n`;
+        md += `- Largest Contentful Paint (LCP) < 2.5s\n`;
+        md += `- Cumulative Layout Shift (CLS) < 0.1\n`;
+        md += `- First Input Delay (FID) < 100ms\n\n`;
+
+        md += `### Accessibility (WCAG 2.1 AA)\n\n`;
+        md += `- All interactive elements keyboard accessible\n`;
+        md += `- Sufficient color contrast (4.5:1 for text)\n`;
+        md += `- ARIA labels where appropriate\n`;
+        md += `- Focus indicators visible\n`;
+        md += `- Screen reader compatible\n\n`;
+
+        md += `### Browser Support\n\n`;
+        md += `- Chrome (last 2 versions)\n`;
+        md += `- Firefox (last 2 versions)\n`;
+        md += `- Safari (last 2 versions)\n`;
+        md += `- Edge (last 2 versions)\n\n`;
+
+        md += `### Responsive Breakpoints\n\n`;
+        md += `- Mobile: < 640px\n`;
+        md += `- Tablet: 640px - 1024px\n`;
+        md += `- Desktop: > 1024px\n\n`;
+
+        // File Structure
+        md += `## File Structure\n\n`;
+        md += `\`\`\`\n`;
+        md += `src/\n`;
+        md += `├── components/          # Reusable UI components\n`;
+        md += `│   ├── common/          # Buttons, inputs, cards\n`;
+        md += `│   └── layout/          # Headers, footers, navigation\n`;
+        md += `├── features/            # Feature-based modules\n`;
+        md += `│   └── [feature]/\n`;
+        md += `│       ├── components/  # Feature-specific components\n`;
+        md += `│       ├── hooks/       # Feature-specific hooks\n`;
+        md += `│       └── types.ts     # Feature types\n`;
+        md += `├── hooks/               # Shared custom hooks\n`;
+        md += `├── services/            # API and external services\n`;
+        md += `├── utils/               # Helper functions\n`;
+        md += `├── types/               # Shared TypeScript types\n`;
+        md += `├── styles/              # Global styles and tokens\n`;
+        md += `└── App.tsx              # Root component\n`;
+        md += `\`\`\`\n\n`;
+
+        // Testing Strategy
+        md += `## Testing Strategy\n\n`;
+        md += `### Unit Tests\n\n`;
+        md += `- Target: 80% code coverage\n`;
+        md += `- Test utility functions and business logic\n`;
+        md += `- Test custom hooks with renderHook\n\n`;
+
+        md += `### Component Tests\n\n`;
+        md += `- Test component behavior, not implementation\n`;
+        md += `- Use React Testing Library\n`;
+        md += `- Test user interactions and accessibility\n\n`;
+
+        md += `### Integration Tests\n\n`;
+        md += `- Test feature flows end-to-end\n`;
+        md += `- Mock API responses consistently\n`;
+        md += `- Test error states and edge cases\n\n`;
+
+        // Deployment
+        md += `## Deployment\n\n`;
+        md += `### Environments\n\n`;
+        md += `| Environment | Purpose | URL Pattern |\n`;
+        md += `|-------------|---------|-------------|\n`;
+        md += `| Development | Local testing | localhost:3000 |\n`;
+        md += `| Staging | Pre-production | staging.example.com |\n`;
+        md += `| Production | Live | example.com |\n\n`;
+
+        md += `### CI/CD Pipeline\n\n`;
+        md += `1. Lint and type check\n`;
+        md += `2. Run unit and integration tests\n`;
+        md += `3. Build production bundle\n`;
+        md += `4. Deploy to staging (on PR merge)\n`;
+        md += `5. Deploy to production (on release)\n\n`;
+
+        // Constraints
+        md += `## Constraints & Assumptions\n\n`;
+        md += `${data?.constraints || `- Framework: ${data?.framework || 'React'}\n- Screens to implement: ${data?.screenCount || 'TBD'}\n- User stories to fulfill: ${data?.storyCount || 'TBD'}`}\n\n`;
+
+        md += `### Assumptions\n\n`;
+        md += `- Users have modern browsers with JavaScript enabled\n`;
+        md += `- Stable internet connection for API calls\n`;
+        md += `- Backend APIs follow RESTful conventions\n\n`;
+
+        return md;
+      }
+
+      default:
+        return `# ${documentType}\n\nGenerated: ${timestamp}\n\n${JSON.stringify(data, null, 2)}`;
+    }
+  }
+
+  /**
+   * Estimate effort in hours based on complexity
+   */
+  private estimateEffort(complexity: string): number {
+    switch (complexity) {
+      case 'low': return 2;
+      case 'medium': return 4;
+      case 'high': return 8;
+      case 'very-high': return 16;
+      default: return 4;
+    }
+  }
+
+  /**
+   * Generate tasks from screens and user stories
+   */
+  private generateTasksFromData(screens: any[], userStories: any[], framework: string): any[] {
+    const tasks: any[] = [];
+    let taskId = 1;
+
+    // Phase 0: Project Setup
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: `Initialize ${framework} Project`,
+      description: `Set up a new ${framework} project with TypeScript, configure build tools, linting, and initial file structure.`,
+      priority: 'P0',
+      complexity: 'low',
+      estimatedHours: 2,
+      acceptanceCriteria: [
+        'Project runs with npm install && npm run dev',
+        'TypeScript configured with strict mode',
+        'ESLint and Prettier configured',
+        'Basic file structure matches architecture guidelines',
+        'Git repository initialized with .gitignore',
+      ],
+      technicalNotes: 'Use Vite for faster development builds. Configure path aliases for cleaner imports.',
+    });
+
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: 'Configure Design System & Styling',
+      description: 'Set up CSS architecture, design tokens (colors, spacing, typography), and base styles.',
+      priority: 'P0',
+      complexity: 'medium',
+      estimatedHours: 4,
+      acceptanceCriteria: [
+        'Design tokens defined in variables file',
+        'Base typography styles implemented',
+        'Color palette with semantic naming',
+        'Responsive breakpoint utilities',
+        'Dark mode support (if applicable)',
+      ],
+      dependencies: [`task-1`],
+    });
+
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: 'Create Common UI Components',
+      description: 'Build reusable UI primitives: Button, Input, Card, Modal, Loading spinner, etc.',
+      priority: 'P0',
+      complexity: 'medium',
+      estimatedHours: 6,
+      acceptanceCriteria: [
+        'Button component with variants (primary, secondary, ghost)',
+        'Input component with validation states',
+        'Card component with consistent styling',
+        'Modal/Dialog component with backdrop',
+        'Loading and skeleton states',
+        'All components are accessible',
+      ],
+      dependencies: [`task-2`],
+    });
+
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: 'Set Up Routing & Navigation',
+      description: 'Configure React Router, implement navigation layout, create protected route wrapper.',
+      priority: 'P0',
+      complexity: 'medium',
+      estimatedHours: 3,
+      acceptanceCriteria: [
+        'Route configuration for all screens',
+        'Navigation component with active state',
+        'Protected routes for authenticated pages',
+        '404 page implemented',
+        'Route transitions (optional)',
+      ],
+      dependencies: [`task-3`],
+    });
+
+    // Phase 1: Screen Implementation
+    screens.forEach((screen: any, index: number) => {
+      const screenName = screen.name || `Screen ${index + 1}`;
+      const screenDescription = screen.description || '';
+
+      tasks.push({
+        id: `task-${taskId++}`,
+        title: `Implement ${screenName}`,
+        description: `Build the complete UI for ${screenName}. ${screenDescription}`,
+        priority: 'P1',
+        complexity: screen.complexity || 'medium',
+        estimatedHours: this.estimateScreenEffort(screen),
+        screenId: screen.id,
+        acceptanceCriteria: [
+          `All UI elements from design implemented`,
+          `Responsive across mobile, tablet, and desktop`,
+          `Loading and error states handled`,
+          `Accessibility requirements met`,
+          `Connected to state management (if applicable)`,
+        ],
+        technicalNotes: screen.technicalNotes || `Component path: src/features/${this.kebabCase(screenName)}/`,
+        dependencies: [`task-4`],
+      });
+    });
+
+    // Phase 2: User Story Implementation
+    userStories.forEach((story: any, index: number) => {
+      tasks.push({
+        id: `task-${taskId++}`,
+        title: story.title || `Implement User Story ${index + 1}`,
+        description: story.fullStory || story.description || '',
+        priority: story.priority || 'P1',
+        complexity: story.complexity || 'medium',
+        estimatedHours: this.estimateStoryEffort(story.complexity),
+        storyId: story.id,
+        acceptanceCriteria: story.acceptanceCriteria || [
+          'All acceptance criteria from user story are met',
+          'Edge cases handled appropriately',
+          'Error states provide helpful feedback',
+        ],
+        technicalNotes: story.technicalNotes,
+      });
+    });
+
+    // Phase 3: Polish & Quality
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: 'Implement Error Handling & Boundaries',
+      description: 'Add global error boundaries, API error handling, and user-friendly error messages.',
+      priority: 'P2',
+      complexity: 'medium',
+      estimatedHours: 4,
+      acceptanceCriteria: [
+        'React Error Boundary wraps main app',
+        'API errors display user-friendly messages',
+        'Form validation errors are clear and actionable',
+        'Network failure states handled gracefully',
+      ],
+    });
+
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: 'Write Unit & Component Tests',
+      description: 'Create comprehensive test suite for components, hooks, and utility functions.',
+      priority: 'P2',
+      complexity: 'medium',
+      estimatedHours: 8,
+      acceptanceCriteria: [
+        'Minimum 80% code coverage',
+        'All critical user flows tested',
+        'Accessibility tests included',
+        'Tests run in CI pipeline',
+      ],
+    });
+
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: 'Performance Optimization',
+      description: 'Optimize bundle size, implement code splitting, add lazy loading for routes.',
+      priority: 'P2',
+      complexity: 'medium',
+      estimatedHours: 4,
+      acceptanceCriteria: [
+        'Route-based code splitting implemented',
+        'Images optimized and lazy loaded',
+        'Lighthouse performance score > 90',
+        'Bundle size analyzed and unnecessary deps removed',
+      ],
+    });
+
+    tasks.push({
+      id: `task-${taskId++}`,
+      title: 'Documentation & README',
+      description: 'Write comprehensive README, inline documentation, and setup instructions.',
+      priority: 'P3',
+      complexity: 'low',
+      estimatedHours: 3,
+      acceptanceCriteria: [
+        'README with project overview and setup',
+        'API documentation (if applicable)',
+        'Component storybook or docs (optional)',
+        'Contribution guidelines',
+      ],
+    });
+
+    return tasks;
+  }
+
+  /**
+   * Estimate screen implementation effort
+   */
+  private estimateScreenEffort(screen: any): number {
+    const base = 4;
+    const complexityBonus = screen.complexity === 'high' ? 4 : screen.complexity === 'low' ? -2 : 0;
+    const formBonus = screen.hasForm ? 2 : 0;
+    const listBonus = screen.hasList ? 2 : 0;
+    return Math.max(2, base + complexityBonus + formBonus + listBonus);
+  }
+
+  /**
+   * Estimate user story implementation effort
+   */
+  private estimateStoryEffort(complexity: string): number {
+    switch (complexity) {
+      case 'low': return 2;
+      case 'medium': return 4;
+      case 'high': return 8;
+      default: return 4;
+    }
+  }
+
+  /**
+   * Convert string to kebab-case
+   */
+  private kebabCase(str: string): string {
+    return str
+      .replace(/([a-z])([A-Z])/g, '$1-$2')
+      .replace(/[\s_]+/g, '-')
+      .toLowerCase();
+  }
+
+  /**
+   * Generate steering document from project data
+   */
+  private generateSteeringDocument(projectName: string, framework: string, screens: any[], userStories: any[]): any {
+    return {
+      projectName,
+      framework,
+      overview: `${projectName} is a modern ${framework}-based web application. This steering document provides technical guidance and standards for the development team to ensure consistency, quality, and maintainability throughout the project lifecycle.`,
+      goals: [
+        'Deliver a polished, production-ready application',
+        'Ensure code quality through testing and reviews',
+        'Build an accessible and performant user experience',
+        'Create maintainable, well-documented code',
+      ],
+      targetAudience: 'End users looking for a seamless, intuitive digital experience.',
+      codingStandards: `- **TypeScript First:** Use TypeScript for all files; avoid \`any\` types
+- **Functional Components:** Use functional components with hooks exclusively
+- **Named Exports:** Prefer named exports over default exports
+- **Small Functions:** Keep functions under 30 lines; extract logic to utils
+- **Descriptive Names:** Use clear, intention-revealing names
+- **JSDoc Comments:** Document complex functions and public APIs
+- **No Magic Numbers:** Extract constants with meaningful names
+- **Error Handling:** Always handle errors explicitly`,
+      architecturalPatterns: `This project follows a **feature-based architecture** where code is organized by business domain rather than technical concern.
+
+### Key Patterns:
+- **Container/Presentation:** Separate logic (containers) from UI (components)
+- **Custom Hooks:** Encapsulate reusable stateful logic
+- **Service Layer:** Abstract API calls and external integrations
+- **Context Providers:** Share global state without prop drilling`,
+      qualityRequirements: `### Performance Targets
+- Lighthouse Performance: > 90
+- LCP: < 2.5 seconds
+- Bundle size: < 250KB (gzipped)
+
+### Accessibility Standards
+- WCAG 2.1 AA compliance
+- Full keyboard navigation
+- Screen reader tested
+
+### Code Quality
+- Test coverage: > 80%
+- Zero critical lint errors
+- All PRs reviewed before merge`,
+      constraints: `- **Framework:** ${framework}
+- **Screens:** ${screens.length} screens to implement
+- **User Stories:** ${userStories.length} stories to fulfill
+- **Timeline:** TBD based on sprint planning`,
+      screenCount: screens.length,
+      storyCount: userStories.length,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Generate comprehensive task list from all build data
+   * Creates detailed tasks for: project setup, each feature, each user story, each screen, and each user flow
+   */
+  private generateTaskListFromBuildData(message: any): string {
+    const project = message.project || { name: message.projectName, title: message.projectName, description: '' };
+    const features = message.features || [];
+    const userStories = message.userStories || [];
+    const screens = message.screens || [];
+    const userFlows = message.userFlows || [];
+    const framework = message.framework || 'react';
+    const lookAndFeel = message.lookAndFeel || {};
+    const personas = message.personas || [];
+
+    let taskId = 1;
+    const lines: string[] = [
+      `# ${project.title || project.name} - Implementation Task List`,
+      '',
+      `> Generated: ${new Date().toISOString()}`,
+      `> Framework: ${framework}`,
+      '',
+      '## Executive Summary',
+      '',
+      project.description || `${project.title} is a modern ${framework} application.`,
+      '',
+      '### Project Metrics',
+      '',
+      `| Metric | Count |`,
+      `|--------|-------|`,
+      `| Total Features | ${features.length} |`,
+      `| Total User Stories | ${userStories.length} |`,
+      `| Total Screens | ${screens.length} |`,
+      `| Total User Flows | ${userFlows.length} |`,
+      `| Target Personas | ${personas.length} |`,
+      '',
+      '---',
+      '',
+    ];
+
+    // =============================================
+    // PHASE 1: PROJECT SETUP (Multiple detailed tasks)
+    // =============================================
+    lines.push('## Phase 1: Project Setup & Infrastructure');
+    lines.push('');
+    lines.push('*Foundational tasks to set up the development environment and project structure.*');
+    lines.push('');
+
+    // Task: Initialize Project
+    lines.push(`### TASK-${taskId++}: Initialize ${framework.charAt(0).toUpperCase() + framework.slice(1)} Project`);
+    lines.push('**Estimated Time:** 2-4 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push(`- [ ] Create new ${framework} project using CLI (e.g., \`npx create-${framework === 'nextjs' ? 'next-app' : framework === 'react' ? 'react-app' : 'vite'}\`)`);
+    lines.push('- [ ] Configure TypeScript (tsconfig.json)');
+    lines.push('- [ ] Set up project directory structure');
+    lines.push('- [ ] Install core dependencies');
+    lines.push('- [ ] Verify project runs locally');
+    lines.push('');
+
+    // Task: Development Environment
+    lines.push(`### TASK-${taskId++}: Configure Development Environment`);
+    lines.push('**Estimated Time:** 1-2 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Set up ESLint with recommended rules');
+    lines.push('- [ ] Configure Prettier for code formatting');
+    lines.push('- [ ] Add EditorConfig for consistent editor settings');
+    lines.push('- [ ] Set up pre-commit hooks (Husky + lint-staged)');
+    lines.push('- [ ] Configure VS Code workspace settings');
+    lines.push('');
+
+    // Task: Version Control
+    lines.push(`### TASK-${taskId++}: Set Up Version Control`);
+    lines.push('**Estimated Time:** 1 hour');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Initialize Git repository');
+    lines.push('- [ ] Create .gitignore with appropriate entries');
+    lines.push('- [ ] Set up branch protection rules');
+    lines.push('- [ ] Create initial commit');
+    lines.push('- [ ] Push to remote repository');
+    lines.push('');
+
+    // Task: Design System Setup
+    if (lookAndFeel && Object.keys(lookAndFeel).length > 0) {
+      lines.push(`### TASK-${taskId++}: Implement Design System`);
+      lines.push('**Estimated Time:** 3-5 hours');
+      lines.push('');
+      lines.push('**Design Specifications:**');
+      if (lookAndFeel.primaryColor) lines.push(`- Primary Color: ${lookAndFeel.primaryColor}`);
+      if (lookAndFeel.secondaryColor) lines.push(`- Secondary Color: ${lookAndFeel.secondaryColor}`);
+      if (lookAndFeel.accentColor) lines.push(`- Accent Color: ${lookAndFeel.accentColor}`);
+      if (lookAndFeel.fontFamily) lines.push(`- Font Family: ${lookAndFeel.fontFamily}`);
+      if (lookAndFeel.style) lines.push(`- Style: ${lookAndFeel.style}`);
+      lines.push('');
+      lines.push('**Sub-tasks:**');
+      lines.push('- [ ] Create CSS variables/theme configuration');
+      lines.push('- [ ] Set up color palette');
+      lines.push('- [ ] Configure typography scale');
+      lines.push('- [ ] Create spacing system');
+      lines.push('- [ ] Set up responsive breakpoints');
+      lines.push('- [ ] Create base component styles');
+      lines.push('');
+    }
+
+    // Task: Testing Infrastructure
+    lines.push(`### TASK-${taskId++}: Set Up Testing Infrastructure`);
+    lines.push('**Estimated Time:** 2-3 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Configure Jest or Vitest');
+    lines.push('- [ ] Set up React Testing Library');
+    lines.push('- [ ] Create test utilities and helpers');
+    lines.push('- [ ] Configure code coverage reporting');
+    lines.push('- [ ] Add example test file');
+    lines.push('');
+
+    // Task: CI/CD Pipeline
+    lines.push(`### TASK-${taskId++}: Configure CI/CD Pipeline`);
+    lines.push('**Estimated Time:** 2-4 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Set up GitHub Actions / CI pipeline');
+    lines.push('- [ ] Configure automated testing on PR');
+    lines.push('- [ ] Set up linting checks');
+    lines.push('- [ ] Configure build verification');
+    lines.push('- [ ] Set up deployment automation (if applicable)');
+    lines.push('');
+
+    lines.push('---');
+    lines.push('');
+
+    // =============================================
+    // PHASE 2: FEATURE IMPLEMENTATION (One task per feature)
+    // =============================================
+    if (features.length > 0) {
+      lines.push('## Phase 2: Feature Implementation');
+      lines.push('');
+      lines.push(`*${features.length} features to implement based on user research and requirements.*`);
+      lines.push('');
+
+      for (let i = 0; i < features.length; i++) {
+        const feature = features[i];
+        const featureName = feature.name || feature.title || `Feature ${i + 1}`;
+        const priority = feature.priority || 'P1';
+
+        lines.push(`### TASK-${taskId++}: Implement "${featureName}"`);
+        lines.push(`**Priority:** ${priority}`);
+        lines.push(`**Feature ID:** ${feature.id || `F-${i + 1}`}`);
+        lines.push('**Estimated Time:** 4-8 hours');
+        lines.push('');
+
+        if (feature.description) {
+          lines.push('**Description:**');
+          lines.push(feature.description);
+          lines.push('');
+        }
+
+        lines.push('**Implementation Sub-tasks:**');
+        lines.push('- [ ] Review feature requirements');
+        lines.push('- [ ] Design component architecture');
+        lines.push('- [ ] Implement core functionality');
+        lines.push('- [ ] Add error handling');
+        lines.push('- [ ] Write unit tests');
+        lines.push('- [ ] Perform code review');
+        lines.push('');
+
+        if (feature.acceptanceCriteria && Array.isArray(feature.acceptanceCriteria)) {
+          lines.push('**Acceptance Criteria:**');
+          for (const criteria of feature.acceptanceCriteria) {
+            lines.push(`- [ ] ${criteria}`);
+          }
+          lines.push('');
+        }
+
+        lines.push('---');
+        lines.push('');
+      }
+    }
+
+    // =============================================
+    // PHASE 3: USER STORY IMPLEMENTATION (One task per story)
+    // =============================================
+    if (userStories.length > 0) {
+      lines.push('## Phase 3: User Story Implementation');
+      lines.push('');
+      lines.push(`*${userStories.length} user stories to implement, mapped to features.*`);
+      lines.push('');
+
+      for (let i = 0; i < userStories.length; i++) {
+        const story = userStories[i];
+        const storyTitle = story.title || `User Story ${i + 1}`;
+
+        lines.push(`### TASK-${taskId++}: Implement "${storyTitle}"`);
+        lines.push(`**Story ID:** ${story.id || `US-${i + 1}`}`);
+        lines.push(`**Related Feature:** ${story.featureName || story.featureId || 'General'}`);
+        lines.push('**Estimated Time:** 2-6 hours');
+        lines.push('');
+
+        if (story.description) {
+          lines.push('**User Story:**');
+          lines.push(`> ${story.description}`);
+          lines.push('');
+        }
+
+        lines.push('**Implementation Sub-tasks:**');
+        lines.push('- [ ] Understand user story context');
+        lines.push('- [ ] Identify affected components');
+        lines.push('- [ ] Implement UI changes');
+        lines.push('- [ ] Implement business logic');
+        lines.push('- [ ] Add appropriate state management');
+        lines.push('- [ ] Write tests for user story');
+        lines.push('- [ ] Verify acceptance criteria');
+        lines.push('');
+
+        if (story.acceptanceCriteria && Array.isArray(story.acceptanceCriteria)) {
+          lines.push('**Acceptance Criteria:**');
+          for (const criteria of story.acceptanceCriteria) {
+            lines.push(`- [ ] ${criteria}`);
+          }
+          lines.push('');
+        }
+
+        lines.push('---');
+        lines.push('');
+      }
+    }
+
+    // =============================================
+    // PHASE 4: SCREEN IMPLEMENTATION (One task per screen)
+    // =============================================
+    if (screens.length > 0) {
+      lines.push('## Phase 4: Screen Implementation');
+      lines.push('');
+      lines.push(`*${screens.length} screens to build with their components.*`);
+      lines.push('');
+
+      for (let i = 0; i < screens.length; i++) {
+        const screen = screens[i];
+        const screenName = screen.name || `Screen ${i + 1}`;
+
+        lines.push(`### TASK-${taskId++}: Build "${screenName}" Screen`);
+        lines.push(`**Screen ID:** ${screen.id || `SCR-${i + 1}`}`);
+        lines.push('**Estimated Time:** 4-8 hours');
+        lines.push('');
+
+        if (screen.description || screen.purpose) {
+          lines.push('**Purpose:**');
+          lines.push(screen.description || screen.purpose);
+          lines.push('');
+        }
+
+        lines.push('**Screen Implementation Sub-tasks:**');
+        lines.push('- [ ] Create screen component file');
+        lines.push('- [ ] Implement page layout');
+        lines.push('- [ ] Add responsive styling');
+        lines.push('- [ ] Connect to routing');
+        lines.push('');
+
+        // List components to build
+        if (screen.components && Array.isArray(screen.components) && screen.components.length > 0) {
+          lines.push('**Component Implementation:**');
+          for (const component of screen.components) {
+            const compName = typeof component === 'string' ? component : (component.name || component);
+            lines.push(`- [ ] Build \`${compName}\` component`);
+          }
+          lines.push('');
+        }
+
+        lines.push('**Quality Checklist:**');
+        lines.push('- [ ] Matches design specifications');
+        lines.push('- [ ] Responsive on mobile/tablet/desktop');
+        lines.push('- [ ] Accessible (keyboard navigation, ARIA labels)');
+        lines.push('- [ ] Loading states implemented');
+        lines.push('- [ ] Error states implemented');
+        lines.push('');
+
+        lines.push('---');
+        lines.push('');
+      }
+    }
+
+    // =============================================
+    // PHASE 5: USER FLOW IMPLEMENTATION (One task per flow)
+    // =============================================
+    if (userFlows.length > 0) {
+      lines.push('## Phase 5: User Flow Implementation');
+      lines.push('');
+      lines.push(`*${userFlows.length} user flows to implement, connecting screens and interactions.*`);
+      lines.push('');
+
+      for (let i = 0; i < userFlows.length; i++) {
+        const flow = userFlows[i];
+        const flowName = flow.name || flow.title || `User Flow ${i + 1}`;
+
+        lines.push(`### TASK-${taskId++}: Implement "${flowName}" Flow`);
+        lines.push(`**Flow ID:** ${flow.id || `UF-${i + 1}`}`);
+        lines.push('**Estimated Time:** 3-6 hours');
+        lines.push('');
+
+        if (flow.description) {
+          lines.push('**Description:**');
+          lines.push(flow.description);
+          lines.push('');
+        }
+
+        // List flow steps
+        if (flow.steps && Array.isArray(flow.steps) && flow.steps.length > 0) {
+          lines.push('**Flow Steps to Implement:**');
+          for (let j = 0; j < flow.steps.length; j++) {
+            const step = flow.steps[j];
+            const stepDesc = typeof step === 'string' ? step : (step.description || step.name || step);
+            lines.push(`${j + 1}. [ ] ${stepDesc}`);
+          }
+          lines.push('');
+        }
+
+        lines.push('**Implementation Sub-tasks:**');
+        lines.push('- [ ] Map screen navigation');
+        lines.push('- [ ] Implement route transitions');
+        lines.push('- [ ] Add form validation (if applicable)');
+        lines.push('- [ ] Handle success/error states');
+        lines.push('- [ ] Add loading indicators');
+        lines.push('- [ ] Test complete flow end-to-end');
+        lines.push('');
+
+        lines.push('---');
+        lines.push('');
+      }
+    }
+
+    // =============================================
+    // PHASE 6: INTEGRATION & TESTING
+    // =============================================
+    lines.push('## Phase 6: Integration & Testing');
+    lines.push('');
+    lines.push('*Final integration, testing, and quality assurance tasks.*');
+    lines.push('');
+
+    lines.push(`### TASK-${taskId++}: Integration Testing`);
+    lines.push('**Estimated Time:** 4-8 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Write integration tests for all user flows');
+    lines.push('- [ ] Test cross-component interactions');
+    lines.push('- [ ] Verify API integrations');
+    lines.push('- [ ] Test edge cases');
+    lines.push('- [ ] Achieve target test coverage (>80%)');
+    lines.push('');
+
+    lines.push(`### TASK-${taskId++}: End-to-End Testing`);
+    lines.push('**Estimated Time:** 4-6 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Set up E2E testing framework (Playwright/Cypress)');
+    lines.push('- [ ] Write E2E tests for critical user journeys');
+    lines.push('- [ ] Test on multiple browsers (Chrome, Firefox, Safari)');
+    lines.push('- [ ] Test on mobile devices');
+    lines.push('- [ ] Verify all user flows work end-to-end');
+    lines.push('');
+
+    lines.push(`### TASK-${taskId++}: Accessibility Audit`);
+    lines.push('**Estimated Time:** 2-4 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Run Lighthouse accessibility audit');
+    lines.push('- [ ] Test with screen reader');
+    lines.push('- [ ] Verify keyboard navigation');
+    lines.push('- [ ] Check color contrast ratios');
+    lines.push('- [ ] Add missing ARIA labels');
+    lines.push('- [ ] Fix any accessibility issues');
+    lines.push('');
+
+    lines.push(`### TASK-${taskId++}: Performance Optimization`);
+    lines.push('**Estimated Time:** 3-6 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Run Lighthouse performance audit');
+    lines.push('- [ ] Optimize bundle size');
+    lines.push('- [ ] Implement code splitting');
+    lines.push('- [ ] Add image optimization');
+    lines.push('- [ ] Configure caching headers');
+    lines.push('- [ ] Verify LCP < 2.5 seconds');
+    lines.push('');
+
+    lines.push('---');
+    lines.push('');
+
+    // =============================================
+    // PHASE 7: DOCUMENTATION & DEPLOYMENT
+    // =============================================
+    lines.push('## Phase 7: Documentation & Deployment');
+    lines.push('');
+
+    lines.push(`### TASK-${taskId++}: Write Documentation`);
+    lines.push('**Estimated Time:** 3-5 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Write comprehensive README');
+    lines.push('- [ ] Document setup instructions');
+    lines.push('- [ ] Document environment variables');
+    lines.push('- [ ] Create API documentation (if applicable)');
+    lines.push('- [ ] Add inline code comments');
+    lines.push('- [ ] Document component props');
+    lines.push('');
+
+    lines.push(`### TASK-${taskId++}: Prepare for Deployment`);
+    lines.push('**Estimated Time:** 2-4 hours');
+    lines.push('');
+    lines.push('**Sub-tasks:**');
+    lines.push('- [ ] Configure production build');
+    lines.push('- [ ] Set up environment variables');
+    lines.push('- [ ] Configure hosting platform');
+    lines.push('- [ ] Set up domain and SSL');
+    lines.push('- [ ] Create deployment scripts');
+    lines.push('- [ ] Perform final production testing');
+    lines.push('');
+
+    // Summary
+    lines.push('---');
+    lines.push('');
+    lines.push('## Task Summary');
+    lines.push('');
+    lines.push(`| Phase | Task Count |`);
+    lines.push(`|-------|------------|`);
+    lines.push(`| 1. Project Setup | 5-6 tasks |`);
+    lines.push(`| 2. Features | ${features.length} tasks |`);
+    lines.push(`| 3. User Stories | ${userStories.length} tasks |`);
+    lines.push(`| 4. Screens | ${screens.length} tasks |`);
+    lines.push(`| 5. User Flows | ${userFlows.length} tasks |`);
+    lines.push(`| 6. Testing | 4 tasks |`);
+    lines.push(`| 7. Documentation | 2 tasks |`);
+    lines.push(`| **Total** | **${taskId - 1} tasks** |`);
+    lines.push('');
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate steering document from all build data
+   */
+  private generateSteeringDocumentFromBuildData(message: any): string {
+    const project = message.project || { name: message.projectName, title: message.projectName, description: '' };
+    const lookAndFeel = message.lookAndFeel || {};
+    const framework = message.framework || 'react';
+    const personas = message.personas || [];
+    const features = message.features || [];
+
+    const lines: string[] = [
+      `# ${project.title || project.name} - Technical Steering Document`,
+      '',
+      `> Generated: ${new Date().toISOString()}`,
+      '',
+      '## 1. Project Overview',
+      '',
+      project.description || `${project.title} is a ${framework} application.`,
+      '',
+      '---',
+      '',
+      '## 2. Technology Stack',
+      '',
+      `- **Framework:** ${framework}`,
+      `- **Language:** TypeScript`,
+      `- **Styling:** ${lookAndFeel.style || 'Modern CSS'}`,
+      '',
+      '---',
+      '',
+      '## 3. Design System',
+      '',
+    ];
+
+    if (lookAndFeel && Object.keys(lookAndFeel).length > 0) {
+      lines.push('### Color Palette');
+      lines.push('');
+      if (lookAndFeel.primaryColor) lines.push(`- **Primary:** ${lookAndFeel.primaryColor}`);
+      if (lookAndFeel.secondaryColor) lines.push(`- **Secondary:** ${lookAndFeel.secondaryColor}`);
+      if (lookAndFeel.accentColor) lines.push(`- **Accent:** ${lookAndFeel.accentColor}`);
+      if (lookAndFeel.backgroundColor) lines.push(`- **Background:** ${lookAndFeel.backgroundColor}`);
+      lines.push('');
+      lines.push('### Typography');
+      lines.push('');
+      lines.push(`- **Font Family:** ${lookAndFeel.fontFamily || 'System default'}`);
+      lines.push(`- **Style:** ${lookAndFeel.style || 'Modern'}`);
+      lines.push(`- **Mood:** ${lookAndFeel.mood || 'Professional'}`);
+      lines.push('');
+    } else {
+      lines.push('Design system to be defined based on project requirements.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## 4. Target Users');
+    lines.push('');
+
+    if (personas.length > 0) {
+      for (const persona of personas) {
+        lines.push(`### ${persona.name}`);
+        lines.push(`**Age:** ${persona.age || 'Not specified'} | **Occupation:** ${persona.occupation || 'Not specified'}`);
+        lines.push('');
+        lines.push(persona.backstory || persona.description || '');
+        lines.push('');
+      }
+    } else {
+      lines.push('Target user personas to be defined.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## 5. Core Features');
+    lines.push('');
+
+    if (features.length > 0) {
+      for (const feature of features) {
+        lines.push(`### ${feature.name || feature.title}`);
+        lines.push(`**Priority:** ${feature.priority || 'P1'}`);
+        lines.push('');
+        lines.push(feature.description || '');
+        lines.push('');
+      }
+    } else {
+      lines.push('Features to be defined based on user research.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## 6. Coding Standards');
+    lines.push('');
+    lines.push('- Use TypeScript for type safety');
+    lines.push('- Follow component-based architecture');
+    lines.push('- Write unit tests for business logic');
+    lines.push('- Use semantic HTML elements');
+    lines.push('- Implement responsive design');
+    lines.push('- Follow accessibility guidelines (WCAG 2.1)');
+    lines.push('');
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate comprehensive project documentation
+   */
+  private generateComprehensiveDocumentation(message: any): string {
+    const project = message.project || { name: message.projectName, title: message.projectName, description: '' };
+    const personas = message.personas || [];
+    const features = message.features || [];
+    const userStories = message.userStories || [];
+    const userFlows = message.userFlows || [];
+    const screens = message.screens || [];
+    const lookAndFeel = message.lookAndFeel || {};
+    const framework = message.framework || 'react';
+
+    const lines: string[] = [
+      `# ${project.title || project.name}`,
+      '',
+      `> Comprehensive Project Documentation`,
+      `> Generated: ${new Date().toISOString()}`,
+      '',
+      '---',
+      '',
+      '## Table of Contents',
+      '',
+      '1. [Project Overview](#project-overview)',
+      '2. [User Personas](#user-personas)',
+      '3. [Features](#features)',
+      '4. [User Stories](#user-stories)',
+      '5. [User Flows](#user-flows)',
+      '6. [Screen Specifications](#screen-specifications)',
+      '7. [Design System](#design-system)',
+      '8. [Technical Stack](#technical-stack)',
+      '',
+      '---',
+      '',
+      '## Project Overview',
+      '',
+      project.description || `${project.title} is a modern web application built with ${framework}.`,
+      '',
+      '---',
+      '',
+      '## User Personas',
+      '',
+    ];
+
+    if (personas.length > 0) {
+      for (const persona of personas) {
+        lines.push(`### ${persona.name}`);
+        lines.push('');
+        lines.push(`| Attribute | Value |`);
+        lines.push(`|-----------|-------|`);
+        lines.push(`| **Age** | ${persona.age || 'N/A'} |`);
+        lines.push(`| **Occupation** | ${persona.occupation || 'N/A'} |`);
+        lines.push(`| **Location** | ${persona.location || 'N/A'} |`);
+        lines.push(`| **Tech Savviness** | ${persona.techSavviness || 'N/A'} |`);
+        lines.push('');
+        lines.push('**Backstory:**');
+        lines.push(persona.backstory || persona.description || 'No backstory provided.');
+        lines.push('');
+        if (persona.goals && Array.isArray(persona.goals)) {
+          lines.push('**Goals:**');
+          for (const goal of persona.goals) {
+            lines.push(`- ${goal}`);
+          }
+          lines.push('');
+        }
+        if (persona.painPoints && Array.isArray(persona.painPoints)) {
+          lines.push('**Pain Points:**');
+          for (const pain of persona.painPoints) {
+            lines.push(`- ${pain}`);
+          }
+          lines.push('');
+        }
+      }
+    } else {
+      lines.push('No personas defined.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## Features');
+    lines.push('');
+
+    if (features.length > 0) {
+      for (const feature of features) {
+        lines.push(`### ${feature.name || feature.title}`);
+        lines.push(`**ID:** ${feature.id || 'N/A'} | **Priority:** ${feature.priority || 'P1'}`);
+        lines.push('');
+        lines.push(feature.description || '');
+        lines.push('');
+        if (feature.acceptanceCriteria && Array.isArray(feature.acceptanceCriteria)) {
+          lines.push('**Acceptance Criteria:**');
+          for (const criteria of feature.acceptanceCriteria) {
+            lines.push(`- ${criteria}`);
+          }
+          lines.push('');
+        }
+      }
+    } else {
+      lines.push('No features defined.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## User Stories');
+    lines.push('');
+
+    if (userStories.length > 0) {
+      for (const story of userStories) {
+        lines.push(`### ${story.title}`);
+        lines.push(`**ID:** ${story.id || 'N/A'} | **Feature:** ${story.featureName || story.featureId || 'General'}`);
+        lines.push('');
+        lines.push(story.description || '');
+        lines.push('');
+        if (story.acceptanceCriteria && Array.isArray(story.acceptanceCriteria)) {
+          lines.push('**Acceptance Criteria:**');
+          for (const criteria of story.acceptanceCriteria) {
+            lines.push(`- ${criteria}`);
+          }
+          lines.push('');
+        }
+      }
+    } else {
+      lines.push('No user stories defined.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## User Flows');
+    lines.push('');
+
+    if (userFlows.length > 0) {
+      for (const flow of userFlows) {
+        lines.push(`### ${flow.name || flow.title || 'User Flow'}`);
+        lines.push(`${flow.description || ''}`);
+        lines.push('');
+        if (flow.steps && Array.isArray(flow.steps)) {
+          lines.push('**Steps:**');
+          for (let i = 0; i < flow.steps.length; i++) {
+            const step = flow.steps[i];
+            lines.push(`${i + 1}. ${typeof step === 'string' ? step : step.description || step.name || step}`);
+          }
+          lines.push('');
+        }
+      }
+    } else {
+      lines.push('No user flows defined.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## Screen Specifications');
+    lines.push('');
+
+    if (screens.length > 0) {
+      for (const screen of screens) {
+        lines.push(`### ${screen.name}`);
+        lines.push(`**Purpose:** ${screen.description || screen.purpose || 'N/A'}`);
+        lines.push('');
+        if (screen.components && Array.isArray(screen.components)) {
+          lines.push('**Components:**');
+          for (const component of screen.components) {
+            lines.push(`- ${typeof component === 'string' ? component : component.name || component}`);
+          }
+          lines.push('');
+        }
+      }
+    } else {
+      lines.push('No screens defined.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## Design System');
+    lines.push('');
+
+    if (lookAndFeel && Object.keys(lookAndFeel).length > 0) {
+      lines.push('### Visual Identity');
+      lines.push('');
+      lines.push(`- **Style:** ${lookAndFeel.style || 'Modern'}`);
+      lines.push(`- **Mood:** ${lookAndFeel.mood || 'Professional'}`);
+      lines.push(`- **Font Family:** ${lookAndFeel.fontFamily || 'System default'}`);
+      lines.push('');
+      lines.push('### Color Palette');
+      lines.push('');
+      lines.push('| Role | Color |');
+      lines.push('|------|-------|');
+      if (lookAndFeel.primaryColor) lines.push(`| Primary | ${lookAndFeel.primaryColor} |`);
+      if (lookAndFeel.secondaryColor) lines.push(`| Secondary | ${lookAndFeel.secondaryColor} |`);
+      if (lookAndFeel.accentColor) lines.push(`| Accent | ${lookAndFeel.accentColor} |`);
+      if (lookAndFeel.backgroundColor) lines.push(`| Background | ${lookAndFeel.backgroundColor} |`);
+      lines.push('');
+      if (lookAndFeel.logoDescription) {
+        lines.push('### Logo Description');
+        lines.push('');
+        lines.push(lookAndFeel.logoDescription);
+        lines.push('');
+      }
+    } else {
+      lines.push('Design system to be defined.');
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## Technical Stack');
+    lines.push('');
+    lines.push(`- **Framework:** ${framework}`);
+    lines.push('- **Language:** TypeScript');
+    lines.push('- **Styling:** CSS-in-JS / CSS Modules');
+    lines.push('- **Testing:** Jest + React Testing Library');
+    lines.push('');
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate requirements document
+   */
+  private generateRequirementsDocument(message: any): string {
+    const project = message.project || { name: message.projectName, title: message.projectName };
+    const features = message.features || [];
+    const userStories = message.userStories || [];
+    const personas = message.personas || [];
+
+    const lines: string[] = [
+      `# ${project.title || project.name} - Requirements Document`,
+      '',
+      `> Generated: ${new Date().toISOString()}`,
+      '',
+      '---',
+      '',
+      '## 1. Functional Requirements',
+      '',
+    ];
+
+    let reqId = 1;
+
+    // Features as requirements
+    if (features.length > 0) {
+      for (const feature of features) {
+        lines.push(`### FR-${reqId++}: ${feature.name || feature.title}`);
+        lines.push('');
+        lines.push(`**Description:** ${feature.description || 'N/A'}`);
+        lines.push(`**Priority:** ${feature.priority || 'P1'}`);
+        lines.push('');
+        if (feature.acceptanceCriteria && Array.isArray(feature.acceptanceCriteria)) {
+          lines.push('**Acceptance Criteria:**');
+          for (const criteria of feature.acceptanceCriteria) {
+            lines.push(`- ${criteria}`);
+          }
+          lines.push('');
+        }
+      }
+    }
+
+    // User stories as requirements
+    if (userStories.length > 0) {
+      lines.push('---');
+      lines.push('');
+      lines.push('## 2. User Story Requirements');
+      lines.push('');
+
+      for (const story of userStories) {
+        lines.push(`### US-${story.id || reqId++}: ${story.title}`);
+        lines.push('');
+        lines.push(`**Description:** ${story.description || 'N/A'}`);
+        lines.push(`**Feature:** ${story.featureName || story.featureId || 'General'}`);
+        lines.push('');
+        if (story.acceptanceCriteria && Array.isArray(story.acceptanceCriteria)) {
+          lines.push('**Acceptance Criteria:**');
+          for (const criteria of story.acceptanceCriteria) {
+            lines.push(`- ${criteria}`);
+          }
+          lines.push('');
+        }
+      }
+    }
+
+    lines.push('---');
+    lines.push('');
+    lines.push('## 3. Non-Functional Requirements');
+    lines.push('');
+    lines.push('### NFR-1: Performance');
+    lines.push('- Page load time < 3 seconds');
+    lines.push('- Time to interactive < 5 seconds');
+    lines.push('');
+    lines.push('### NFR-2: Accessibility');
+    lines.push('- WCAG 2.1 AA compliance');
+    lines.push('- Keyboard navigation support');
+    lines.push('- Screen reader compatibility');
+    lines.push('');
+    lines.push('### NFR-3: Security');
+    lines.push('- HTTPS required');
+    lines.push('- XSS prevention');
+    lines.push('- CSRF protection');
+    lines.push('');
+    lines.push('### NFR-4: Compatibility');
+    lines.push('- Modern browsers (Chrome, Firefox, Safari, Edge)');
+    lines.push('- Mobile responsive design');
+    lines.push('');
+
+    // User requirements
+    if (personas.length > 0) {
+      lines.push('---');
+      lines.push('');
+      lines.push('## 4. User Requirements');
+      lines.push('');
+
+      for (const persona of personas) {
+        lines.push(`### ${persona.name}'s Requirements`);
+        lines.push('');
+        if (persona.goals && Array.isArray(persona.goals)) {
+          for (const goal of persona.goals) {
+            lines.push(`- ${goal}`);
+          }
+          lines.push('');
+        }
+        if (persona.painPoints && Array.isArray(persona.painPoints)) {
+          lines.push('**Pain Points to Address:**');
+          for (const pain of persona.painPoints) {
+            lines.push(`- ${pain}`);
+          }
+          lines.push('');
+        }
+      }
+    }
+
+    return lines.join('\n');
   }
 }

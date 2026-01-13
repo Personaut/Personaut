@@ -113,7 +113,7 @@ describe('DesignStage', () => {
 
     it('disables Next button when invalid', () => {
         render(<DesignStage {...defaultProps} />);
-        const nextButton = screen.getByRole('button', { name: /Continue to Build/i });
+        const nextButton = screen.getByRole('button', { name: /Finalize Design/i });
         expect(nextButton).toBeDisabled();
     });
 
@@ -123,7 +123,7 @@ describe('DesignStage', () => {
             { id: '1', name: 'Screen', description: 'A screen', components: ['C1'], flowId: '1' },
         ];
         render(<DesignStage {...defaultProps} userFlows={userFlows} screens={screens} />);
-        const nextButton = screen.getByRole('button', { name: /Continue to Build/i });
+        const nextButton = screen.getByRole('button', { name: /Finalize Design/i });
         expect(nextButton).not.toBeDisabled();
     });
 

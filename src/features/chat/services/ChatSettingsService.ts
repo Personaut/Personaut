@@ -21,7 +21,7 @@ export class ChatSettingsService {
      * Initialize settings from storage
      */
     async initialize(): Promise<void> {
-        if (this.initialized) return;
+        if (this.initialized) {return;}
 
         try {
             // Load each setting from storage

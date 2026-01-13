@@ -1,12 +1,11 @@
 /**
- * Build Stages
+ * Design Stages (formerly Build Stages)
  */
 
 export { IdeaStage } from './IdeaStage';
 export type { IdeaStageProps } from './IdeaStage';
 
-export { TeamStage } from './TeamStage';
-export type { TeamStageProps } from './TeamStage';
+// TeamStage removed - no longer part of Design workflow
 
 export { UsersStage } from './UsersStage';
 export type { UsersStageProps } from './UsersStage';
@@ -20,5 +19,5 @@ export type { StoriesStageProps } from './StoriesStage';
 export { DesignStage } from './DesignStage';
 export type { DesignStageProps } from './DesignStage';
 
-export { BuildStage } from './BuildStage';
-export type { BuildStageProps } from './BuildStage';
+export { FinalizeStage } from './FinalizeStage';
+export type { FinalizeStageProps } from './FinalizeStage';

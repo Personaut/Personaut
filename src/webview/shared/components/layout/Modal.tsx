@@ -128,7 +128,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
 
         // Handle escape key
         useEffect(() => {
-            if (!isOpen || !closeOnEscape) return;
+            if (!isOpen || !closeOnEscape) {return;}
 
             const handleKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'Escape') {
@@ -142,10 +142,10 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
 
         // Focus trap
         useEffect(() => {
-            if (!isOpen) return;
+            if (!isOpen) {return;}
 
             const modal = modalRef.current;
-            if (!modal) return;
+            if (!modal) {return;}
 
             const focusableElements = modal.querySelectorAll(
                 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -154,7 +154,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
             const lastFocusable = focusableElements[focusableElements.length - 1] as HTMLElement;
 
             const handleTab = (e: KeyboardEvent) => {
-                if (e.key !== 'Tab') return;
+                if (e.key !== 'Tab') {return;}
 
                 if (e.shiftKey) {
                     if (document.activeElement === firstFocusable) {
@@ -196,7 +196,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
             [closeOnBackdropClick, onClose]
         );
 
-        if (!isOpen) return null;
+        if (!isOpen) {return null;}
 
         // Backdrop styles
         const backdropStyle: React.CSSProperties = {

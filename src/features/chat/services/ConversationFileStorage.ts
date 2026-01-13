@@ -67,7 +67,7 @@ export class ConversationFileStorage implements ConversationStorage {
      * Save the index to disk (debounced)
      */
     private async saveIndex(): Promise<void> {
-        if (!this.indexCache) return;
+        if (!this.indexCache) {return;}
 
         this.indexCache.lastUpdated = Date.now();
         await this.fileStorage.write(INDEX_FILE, this.indexCache);

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { colors, spacing, borderRadius, typography, shadows, transitions } from '../../../shared/theme';
+import React, { useEffect } from 'react';
+import { colors, spacing, borderRadius, typography } from '../../../shared/theme';
 import { Button, Spinner } from '../../../shared/components/ui';
+import { EditableCard } from '../../../shared/components/EditableCard';
 import { GeneratedFeature, GeneratedPersona } from '../types';
 
 /**
@@ -15,12 +16,18 @@ export interface FeaturesStageProps {
     onFeaturesChange: (features: GeneratedFeature[]) => void;
     /** Handler to generate features */
     onGenerateFeatures: () => void;
+    /** Handler to edit a feature */
+    onEditFeature?: (id: string, updates: { name?: string; description?: string }) => void;
+    /** Handler to regenerate a feature */
+    onRegenerateFeature?: (id: string) => void;
     /** Handler for proceeding to next stage */
     onNext: () => void;
     /** Handler for going back */
     onBack: () => void;
     /** Loading state */
     isLoading?: boolean;
+    /** ID of feature being regenerated */
+    regeneratingFeatureId?: string | null;
 }
 
 /**
@@ -60,12 +67,13 @@ export function FeaturesStage({
     features,
     onFeaturesChange,
     onGenerateFeatures,
+    onEditFeature,
+    onRegenerateFeature,
     onNext,
     onBack,
     isLoading = false,
+    regeneratingFeatureId,
 }: FeaturesStageProps) {
-    const [expandedFeature, setExpandedFeature] = useState<string | null>(null);
-
     // Ensure all features have IDs
     useEffect(() => {
         const needsIds = features.some(f => !f.id);
@@ -104,33 +112,6 @@ export function FeaturesStage({
         lineHeight: typography.lineHeight.relaxed,
     };
 
-    const featureCardStyle: React.CSSProperties = {
-        padding: spacing.lg,
-        backgroundColor: colors.background.secondary,
-        border: `1px solid ${colors.border}`,
-        borderRadius: borderRadius.xl,
-        boxShadow: shadows.sm,
-        transition: transitions.normal,
-        cursor: 'pointer',
-    };
-
-    const featureHeaderStyle: React.CSSProperties = {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: spacing.sm,
-    };
-
-    const badgeStyle = (priority: string): React.CSSProperties => ({
-        padding: `${spacing.xs} ${spacing.sm}`,
-        borderRadius: borderRadius.md,
-        fontSize: typography.fontSize.xs,
-        fontWeight: typography.fontWeight.medium,
-        backgroundColor: `${PRIORITY_COLORS[priority.toLowerCase()] || colors.text.muted}20`,
-        color: PRIORITY_COLORS[priority.toLowerCase()] || colors.text.muted,
-        textTransform: 'capitalize',
-    });
-
     const scoreStyle: React.CSSProperties = {
         display: 'flex',
         alignItems: 'center',
@@ -148,10 +129,6 @@ export function FeaturesStage({
 
     const handleRemoveFeature = (id: string) => {
         onFeaturesChange(features.filter((f) => f.id !== id));
-    };
-
-    const toggleExpanded = (id: string) => {
-        setExpandedFeature(expandedFeature === id ? null : id);
     };
 
     const isValid = features.length > 0;
@@ -248,90 +225,35 @@ export function FeaturesStage({
                     {features.map((feature) => {
                         // Use mentionedBy or personas field
                         const mentionedByPersonas = feature.mentionedBy || feature.personas || [];
+                        const featureId = feature.id || feature.name;
 
                         return (
-                            <div
-                                key={feature.id || feature.name}
-                                style={featureCardStyle}
-                                onClick={() => toggleExpanded(feature.id || feature.name)}
-                            >
-                                <div style={featureHeaderStyle}>
-                                    <div style={{ flex: 1 }}>
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: spacing.sm,
-                                                marginBottom: spacing.xs,
-                                            }}
-                                        >
-                                            <span
-                                                style={{
-                                                    fontSize: typography.fontSize.md,
-                                                    fontWeight: typography.fontWeight.semibold,
-                                                    color: colors.text.primary,
-                                                }}
-                                            >
-                                                {feature.name}
-                                            </span>
-                                            <span style={badgeStyle(feature.priority)}>{feature.priority}</span>
-                                        </div>
-                                        <p
-                                            style={{
-                                                fontSize: typography.fontSize.sm,
-                                                color: colors.text.secondary,
-                                                margin: 0,
-                                            }}
-                                        >
-                                            {feature.description}
-                                        </p>
-                                    </div>
-                                    <div style={scoreStyle}>
+                            <EditableCard
+                                key={featureId}
+                                id={featureId}
+                                title={feature.name}
+                                description={feature.description}
+                                badge={{
+                                    text: feature.priority,
+                                    color: PRIORITY_COLORS[feature.priority?.toLowerCase()] || colors.text.muted,
+                                    backgroundColor: `${PRIORITY_COLORS[feature.priority?.toLowerCase()] || colors.text.muted}20`,
+                                }}
+                                tags={mentionedByPersonas}
+                                expandable={true}
+                                initialExpanded={false}
+                                editable={!!onEditFeature}
+                                onEdit={onEditFeature ? (id, updates) => onEditFeature(id, { name: updates.title, description: updates.description }) : undefined}
+                                onRegenerate={onRegenerateFeature}
+                                onRemove={handleRemoveFeature}
+                                isRegenerating={regeneratingFeatureId === featureId}
+                                customActions={
+                                    <span style={scoreStyle}>
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
                                         {feature.score}
-                                    </div>
-                                </div>
-
-                                {expandedFeature === (feature.id || feature.name) && (
-                                    <div
-                                        style={{
-                                            marginTop: spacing.md,
-                                            paddingTop: spacing.md,
-                                            borderTop: `1px solid ${colors.border}`,
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        {/* Mentioned by personas */}
-                                        {mentionedByPersonas.length > 0 && (
-                                            <div style={{ marginBottom: spacing.md }}>
-                                                <span
-                                                    style={{
-                                                        fontSize: typography.fontSize.xs,
-                                                        color: colors.text.muted,
-                                                        textTransform: 'uppercase',
-                                                    }}
-                                                >
-                                                    Mentioned by:
-                                                </span>
-                                                <div style={{ display: 'flex', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                                                    {mentionedByPersonas.map((name) => (
-                                                        <span
-                                                            key={name}
-                                                            style={{
-                                                                padding: `${spacing.xs} ${spacing.sm}`,
-                                                                backgroundColor: colors.background.tertiary,
-                                                                borderRadius: borderRadius.md,
-                                                                fontSize: typography.fontSize.xs,
-                                                                color: colors.text.secondary,
-                                                            }}
-                                                        >
-                                                            {name}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-
+                                    </span>
+                                }
+                                expandedContent={
+                                    <>
                                         {/* Reasoning */}
                                         {feature.reasoning && (
                                             <div style={{ marginBottom: spacing.md }}>
@@ -359,7 +281,7 @@ export function FeaturesStage({
 
                                         {/* Survey responses */}
                                         {feature.surveyResponses && feature.surveyResponses.length > 0 && (
-                                            <div style={{ marginBottom: spacing.md }}>
+                                            <div>
                                                 <span
                                                     style={{
                                                         fontSize: typography.fontSize.xs,
@@ -404,17 +326,9 @@ export function FeaturesStage({
                                                 </div>
                                             </div>
                                         )}
-
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleRemoveFeature(feature.id || feature.name)}
-                                        >
-                                            Remove Feature
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
+                                    </>
+                                }
+                            />
                         );
                     })}
                 </div>

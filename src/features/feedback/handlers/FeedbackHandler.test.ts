@@ -147,10 +147,11 @@ describe('FeedbackHandler', () => {
         feedbackType: 'individual',
       };
       const result = await service.generateFeedback(params);
+      expect(result.entry).toBeDefined();
 
       const message: WebviewMessage = {
         type: 'get-feedback',
-        id: result.entry.id,
+        id: result.entry!.id,
       };
 
       await handler.handle(message, webview as any);
@@ -158,7 +159,7 @@ describe('FeedbackHandler', () => {
       const response = webview.getLastMessage();
       expect(response.type).toBe('feedback-details');
       expect(response.entry).toBeDefined();
-      expect(response.entry.id).toBe(result.entry.id);
+      expect(response.entry.id).toBe(result.entry!.id);
     });
 
     it('should route delete-feedback message', async () => {
@@ -170,17 +171,18 @@ describe('FeedbackHandler', () => {
         feedbackType: 'individual',
       };
       const result = await service.generateFeedback(params);
+      expect(result.entry).toBeDefined();
 
       const message: WebviewMessage = {
         type: 'delete-feedback',
-        id: result.entry.id,
+        id: result.entry!.id,
       };
 
       await handler.handle(message, webview as any);
 
       const response = webview.getLastMessage();
       expect(response.type).toBe('feedback-deleted');
-      expect(response.id).toBe(result.entry.id);
+      expect(response.id).toBe(result.entry!.id);
     });
 
     it('should route clear-feedback-history message', async () => {

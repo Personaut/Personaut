@@ -173,7 +173,7 @@ function Toast({ item, onRemove }: { item: ToastItem; onRemove: () => void }) {
  * Toast container component
  */
 function ToastContainer({ toasts, onRemove }: { toasts: ToastItem[]; onRemove: (id: string) => void }) {
-    if (toasts.length === 0) return null;
+    if (toasts.length === 0) {return null;}
 
     return (
         <>
@@ -216,7 +216,7 @@ export interface ToastProps {
 }
 
 export function StandaloneToast({ message, variant = 'info', visible = true, onClose }: ToastProps) {
-    if (!visible) return null;
+    if (!visible) {return null;}
 
     return (
         <div

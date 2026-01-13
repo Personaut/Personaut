@@ -4,6 +4,7 @@
 
 import { AgentManager } from '../../../core/agent/AgentManager';
 import { CompilationError } from '../utils/WebpackErrorParser';
+import { getCodePrompt, Framework } from '../../../core/prompts/CodePrompts';
 
 export interface RepairResult {
     success: boolean;
@@ -17,15 +18,21 @@ export class CodeRepairService {
 
     /**
      * Attempt to repair code with compilation errors
+     * @param originalCode - The code with errors
+     * @param errors - List of compilation errors
+     * @param fileName - Name of the file being repaired
+     * @param framework - Framework being used (react, nextjs, vue, flutter, html)
+     * @param maxAttempts - Maximum number of repair attempts
      */
     async repairCode(
         originalCode: string,
         errors: CompilationError[],
         fileName: string,
+        framework: Framework = 'react',
         maxAttempts: number = 3
     ): Promise<RepairResult> {
         let attempts = 0;
-        let currentCode = originalCode;
+        const currentCode = originalCode;
 
         while (attempts < maxAttempts) {
             attempts++;
@@ -36,7 +43,7 @@ export class CodeRepairService {
                     `- ${e.file}${e.line ? `:${e.line}` : ''}: ${e.message}`
                 ).join('\n');
 
-                const repairPrompt = `You previously generated this React TypeScript code for ${fileName}:
+                const repairPrompt = `You previously generated this ${framework.toUpperCase()} code for ${fileName}:
 
 \`\`\`typescript
 ${currentCode}
@@ -50,21 +57,25 @@ Please fix the code to resolve ALL these errors. Common issues to check:
 2. Syntax errors
 3. Type errors
 4. Invalid identifiers (e.g., special characters in variable names)
+5. Framework-specific issues
 
-Return ONLY the corrected TypeScript code, no explanations. The code should be complete and ready to use.`;
+Return ONLY the corrected code, no explanations. The code should be complete and ready to use.`;
 
-                // Call LLM to repair
+                // Call LLM to repair with framework-specific system prompt
                 const conversationId = `code-repair-${fileName}-${Date.now()}`;
                 const repairAgent = await this.agentManager.getOrCreateAgent(
                     conversationId,
                     'build'
                 );
 
+                // Use framework-specific code prompt
+                const systemPrompt = getCodePrompt(framework);
+
                 await repairAgent.chat(
                     repairPrompt,
                     [],
                     {},
-                    'You are an expert React TypeScript developer. Fix compilation errors in code.',
+                    systemPrompt,
                     false
                 );
 

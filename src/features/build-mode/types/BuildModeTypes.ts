@@ -141,10 +141,26 @@ export interface BuildModeMessage {
 }
 
 /**
- * Stage order constant.
+ * Design stage order constant (formerly Build stage order).
+ * 
+ * Stage Flow: Idea → Users → Features → Stories → Design → Finalize
+ * 
+ * Changes:
+ * - Removed 'team' stage
+ * - Renamed 'building' to 'finalize'
  */
-export const STAGE_ORDER = ['idea', 'users', 'features', 'team', 'stories', 'design', 'building'] as const;
-export type StageName = (typeof STAGE_ORDER)[number];
+export const DESIGN_STAGE_ORDER = ['idea', 'users', 'features', 'stories', 'design', 'finalize'] as const;
+export type DesignStageName = (typeof DESIGN_STAGE_ORDER)[number];
+
+/**
+ * @deprecated Use DESIGN_STAGE_ORDER instead. Retained for backward compatibility.
+ */
+export const STAGE_ORDER = DESIGN_STAGE_ORDER;
+
+/**
+ * @deprecated Use DesignStageName instead. Retained for backward compatibility.
+ */
+export type StageName = DesignStageName;
 
 /**
  * Stage file version.

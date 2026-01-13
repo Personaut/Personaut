@@ -26,6 +26,8 @@ describe('BuildModeHandler', () => {
   let mockContentStreamer: jest.Mocked<ContentStreamer>;
   let mockBuildLogManager: jest.Mocked<BuildLogManager>;
   let mockInputValidator: jest.Mocked<InputValidator>;
+  let mockSettingsService: any;
+  let mockAgentManager: any;
   let mockWebview: any;
 
   beforeEach(() => {
@@ -49,6 +51,25 @@ describe('BuildModeHandler', () => {
       validateInput: jest.fn(),
     } as any;
 
+    mockSettingsService = {
+      getSettings: jest.fn().mockResolvedValue({
+        build: {
+          designerModel: 'gemini-2.0-flash-exp',
+          developerModel: 'gemini-2.0-flash-exp',
+          reviewerModel: 'gemini-2.0-flash-exp',
+          summarizerModel: 'gemini-2.0-flash-exp',
+          maxIterationsPerPage: 5,
+          budgetLimit: 10,
+          budgetWarningThreshold: 0.8,
+          reviewerCount: 3,
+          enableParallelReview: true,
+          autoMoveToNextPage: false,
+        },
+      }),
+    };
+
+    mockAgentManager = {} as any;
+
     mockWebview = {
       postMessage: jest.fn(),
     };
@@ -58,7 +79,9 @@ describe('BuildModeHandler', () => {
       mockStageManager,
       mockContentStreamer,
       mockBuildLogManager,
-      mockInputValidator
+      mockInputValidator,
+      mockSettingsService,
+      mockAgentManager
     );
   });
 

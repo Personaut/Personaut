@@ -14,6 +14,13 @@ export interface ApiConfiguration {
   awsSecretKey?: string;
   awsProfile?: string;
   awsUseProfile?: boolean;
+  // Gemini safety settings
+  geminiSafetySettings?: {
+    harassment?: string;
+    hateSpeech?: string;
+    sexuallyExplicit?: string;
+    dangerousContent?: string;
+  };
 }
 
 export interface ProviderResponse {

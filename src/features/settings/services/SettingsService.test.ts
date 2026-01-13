@@ -108,7 +108,7 @@ describe('SettingsService', () => {
 
       expect(settings.provider).toBe('nativeIde');
       expect(settings.theme).toBe('match-ide');
-      expect(settings.autoRead).toBe(false);
+      expect(settings.autoRead).toBe(true);
       expect(settings.autoWrite).toBe(false);
       expect(settings.autoExecute).toBe(false);
       expect(settings.geminiModel).toBe('gemini-1.5-pro-latest');
@@ -412,7 +412,7 @@ describe('SettingsService', () => {
   describe('notifySettingsChanged', () => {
     it('should not notify when AgentManager is not provided', async () => {
       const serviceWithoutAgent = new SettingsService(mockTokenStorageService);
-      
+
       const settingsToSave = {
         provider: 'gemini' as const,
       };
@@ -423,7 +423,7 @@ describe('SettingsService', () => {
 
     it('should log critical settings changes', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       mockWorkspaceConfiguration.get.mockImplementation((key: string, defaultValue?: any) => {
         const values: Record<string, any> = {
           provider: 'gemini',
@@ -454,7 +454,7 @@ describe('SettingsService', () => {
 
     it('should log non-critical settings changes', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       mockWorkspaceConfiguration.get.mockImplementation((_key: string, defaultValue?: any) => {
         return defaultValue;
       });

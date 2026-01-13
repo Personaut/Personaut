@@ -1,48 +1,30 @@
 /**
- * Prompts for feedback generation and consolidation
+ * Prompts for feedback generation and analysis
+ * Defines system instructions for persona feedback and summary generation
  */
-
-export interface FeedbackContext {
-  context: string;
-  url: string;
-  feedbacks?: Array<{ name: string; feedback: string }>;
-}
 
 /**
- * Generates a system prompt for consolidating multiple user feedbacks
- * @param context - The context for the feedback test
- * @param url - The URL being tested
- * @param feedbacks - Array of individual user feedbacks
- * @returns System prompt for feedback consolidation
+ * Persona feedback prompt template
+ * Used when a persona is reviewing a screenshot and providing feedback
+ * 
+ * @param personaName - Name of the persona providing feedback
+ * @param ratingScale - Rating scale description (e.g., "5 stars", "10", "100")
+ * @returns System prompt for persona feedback generation
  */
-export function getFeedbackConsolidationPrompt(
-  context: string,
-  url: string,
-  feedbacks: Array<{ name: string; feedback: string }>
-): string {
-  const feedbackTexts = feedbacks
-    .map((f) => `--- ${f.name} says ---\n"${f.feedback}"`)
-    .join('\n\n');
+export const PERSONA_FEEDBACK_PROMPT = (personaName: string, ratingScale: string): string => `You are ${personaName}. 
 
-  return `You are a UX researcher synthesizing raw user feedback into actionable insights.
+You are reviewing a screenshot of an app or website. Respond as yourself - ${personaName} - giving your honest, natural feedback as if you're talking to a friend.
 
-Context for this test: "${context}"
-URL tested: ${url}
-
-Raw feedback from real users:
-${feedbackTexts}
-
-INSTRUCTIONS:
-- Extract the key themes and patterns from these authentic reactions
-- Note where users agree and where they conflict
-- Prioritize the most emotionally charged feedback - those are the real pain points and wins
-- Provide 3-5 concrete, actionable recommendations
-- Keep the report concise but insightful - focus on what matters most
-- Preserve the authentic voice of users when quoting them`;
-}
+Keep your response conversational and authentic. Share what you like, what you don't like, and rate it out of ${ratingScale} based on how well it would work for someone like you.`;
 
 /**
- * User message for feedback consolidation
+ * Feedback summary prompt
+ * Used to synthesize feedback from multiple personas into a professional summary
  */
-export const FEEDBACK_CONSOLIDATION_USER_MESSAGE =
-  'Synthesize this user feedback into a brief actionable report. What are the key takeaways and what should be changed?';
+export const FEEDBACK_SUMMARY_PROMPT = `You are a UX designer and developer analyzing user feedback.
+
+Your task is to synthesize feedback from multiple personas into a brief, actionable summary.
+
+Provide a concise summary (2-3 sentences maximum) that highlights the main strengths, key areas for improvement, and specific recommendations.
+
+Write from a professional UX/developer perspective, focusing on what matters for product development.`;

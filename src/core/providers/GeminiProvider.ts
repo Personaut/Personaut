@@ -10,6 +10,7 @@ const MODEL_IDENTIFIERS = {
 export class GeminiProvider implements IProvider {
   private apiKey: string;
   private modelId: string;
+  private safetySettings: any[];
 
   constructor(config: ApiConfiguration) {
     if (!config.apiKey) {
@@ -18,6 +19,55 @@ export class GeminiProvider implements IProvider {
 
     this.apiKey = config.apiKey;
     this.modelId = config.modelId || MODEL_IDENTIFIERS.gemini.default;
+
+    // Build safety settings from config
+    this.safetySettings = this.buildSafetySettings(config.geminiSafetySettings);
+  }
+
+  /**
+   * Build safety settings array for Gemini API
+   */
+  private buildSafetySettings(settings?: {
+    harassment?: string;
+    hateSpeech?: string;
+    sexuallyExplicit?: string;
+    dangerousContent?: string;
+  }): any[] {
+    if (!settings) {
+      return [];
+    }
+
+    const safetySettings: any[] = [];
+
+    if (settings.harassment) {
+      safetySettings.push({
+        category: 'HARM_CATEGORY_HARASSMENT',
+        threshold: settings.harassment,
+      });
+    }
+
+    if (settings.hateSpeech) {
+      safetySettings.push({
+        category: 'HARM_CATEGORY_HATE_SPEECH',
+        threshold: settings.hateSpeech,
+      });
+    }
+
+    if (settings.sexuallyExplicit) {
+      safetySettings.push({
+        category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+        threshold: settings.sexuallyExplicit,
+      });
+    }
+
+    if (settings.dangerousContent) {
+      safetySettings.push({
+        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+        threshold: settings.dangerousContent,
+      });
+    }
+
+    return safetySettings;
   }
 
   async chat(history: Message[], systemPrompt: string): Promise<ProviderResponse> {
@@ -109,7 +159,16 @@ export class GeminiProvider implements IProvider {
       };
     }
 
+    // Add safety settings if configured
+    if (this.safetySettings.length > 0) {
+      requestBody.safetySettings = this.safetySettings;
+      console.log('[GeminiProvider] Using safety settings:', this.safetySettings);
+    }
+
     // Make the API request
+    console.log('[GeminiProvider] Making API call to:', url.substring(0, 100) + '...');
+    console.log('[GeminiProvider] Request body:', JSON.stringify(requestBody).substring(0, 500));
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -118,17 +177,28 @@ export class GeminiProvider implements IProvider {
       body: JSON.stringify(requestBody),
     });
 
+    console.log('[GeminiProvider] API response status:', response.status);
+
     if (!response.ok) {
       const errorBody = await response.text();
+      console.error('[GeminiProvider] API error:', errorBody);
       throw new Error(errorBody);
     }
 
     const data = await response.json();
+    console.log('[GeminiProvider] API response received:', {
+      hasCandidates: !!data.candidates,
+      candidatesLength: data.candidates?.length || 0,
+    });
 
     // Extract the text from the response
     let text = '';
     if (data.candidates && data.candidates[0]?.content?.parts) {
       text = data.candidates[0].content.parts.map((part: any) => part.text || '').join('');
+      console.log('[GeminiProvider] Extracted text length:', text.length);
+      console.log('[GeminiProvider] Text preview:', text.substring(0, 200));
+    } else {
+      console.error('[GeminiProvider] No candidates in response!', data);
     }
 
     const providerResponse: ProviderResponse = {

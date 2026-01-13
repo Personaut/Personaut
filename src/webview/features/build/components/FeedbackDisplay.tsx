@@ -35,8 +35,8 @@ export interface FeedbackDisplayProps {
  * Get color for rating
  */
 const getRatingColor = (rating: number): string => {
-    if (rating >= 4) return colors.success;
-    if (rating >= 3) return colors.warning;
+    if (rating >= 4) {return colors.success;}
+    if (rating >= 3) {return colors.warning;}
     return colors.error;
 };
 

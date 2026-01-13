@@ -115,7 +115,7 @@ export function FeedbackHistory({
 
     // Filter entries
     const filteredEntries = entries.filter((entry) => {
-        if (!searchQuery) return true;
+        if (!searchQuery) {return true;}
         const query = searchQuery.toLowerCase();
         return (
             entry.personaName.toLowerCase().includes(query) ||

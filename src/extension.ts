@@ -49,6 +49,7 @@ import {
 // File storage service
 import { FileStorageService } from './shared/services/FileStorageService';
 import { MigrationService } from './shared/services/MigrationService';
+import { registerRecoveryCommands } from './shared/services/DataRecoveryService';
 
 // Personas services
 import { PersonasService, PersonasHandler } from './features/personas';
@@ -94,6 +95,12 @@ async function createAIProvider(
     awsRegion: config.get<string>('awsRegion', 'us-east-1'),
     awsProfile: config.get<string>('awsProfile', 'default'),
     awsUseProfile: config.get<boolean>('bedrockUseAwsProfile', false),
+    geminiSafetySettings: {
+      harassment: config.get<string>('gemini.safetySettings.harassment', 'BLOCK_MEDIUM_AND_ABOVE'),
+      hateSpeech: config.get<string>('gemini.safetySettings.hateSpeech', 'BLOCK_MEDIUM_AND_ABOVE'),
+      sexuallyExplicit: config.get<string>('gemini.safetySettings.sexuallyExplicit', 'BLOCK_MEDIUM_AND_ABOVE'),
+      dangerousContent: config.get<string>('gemini.safetySettings.dangerousContent', 'BLOCK_MEDIUM_AND_ABOVE'),
+    },
   };
 
   switch (provider) {
@@ -105,6 +112,23 @@ async function createAIProvider(
     default:
       return new NativeIDEProvider();
   }
+}
+
+/**
+ * Compare two semantic version strings
+ * Returns: -1 if v1 < v2, 0 if equal, 1 if v1 > v2
+ */
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return 0;
 }
 
 /**
@@ -154,16 +178,16 @@ export async function activate(context: vscode.ExtensionContext) {
   const fileStorage = new FileStorageService(context.globalStorageUri.fsPath);
   const conversationFileStorage = new ConversationFileStorage(fileStorage);
 
+  // Create migration services (will be used later with version tracking)
+  let migrationService: MigrationService | null = null;
+  let personaMigrationService: PersonaMigrationService | null = null;
+
   try {
     await conversationFileStorage.initialize();
     console.log('[Personaut] File storage initialized successfully');
 
-    // Run migration from globalState if needed
-    const migrationService = new MigrationService(context.globalState, conversationFileStorage);
-    const migrationResult = await migrationService.runMigrationIfNeeded();
-    if (migrationResult) {
-      console.log(`[Personaut] Migration complete: ${migrationResult.conversationsMigrated} conversations migrated`);
-    }
+    // Create migration service (don't run yet - will run with version check)
+    migrationService = new MigrationService(context.globalState, conversationFileStorage);
 
     // Preload conversations into memory cache for sync get() operations
     await conversationFileStorage.preloadCache();
@@ -177,12 +201,8 @@ export async function activate(context: vscode.ExtensionContext) {
     await personaFileStorage.initialize();
     console.log('[Personaut] Persona file storage initialized successfully');
 
-    // Run persona migration from globalState if needed
-    const personaMigrationService = new PersonaMigrationService(context.globalState, personaFileStorage);
-    const personaMigrationResult = await personaMigrationService.runMigrationIfNeeded();
-    if (personaMigrationResult) {
-      console.log(`[Personaut] Persona migration complete: ${personaMigrationResult.personasMigrated} personas migrated`);
-    }
+    // Create persona migration service (don't run yet - will run with version check)
+    personaMigrationService = new PersonaMigrationService(context.globalState, personaFileStorage);
 
     // Preload personas into memory cache
     await personaFileStorage.preloadCache();
@@ -202,13 +222,70 @@ export async function activate(context: vscode.ExtensionContext) {
     console.error('[Personaut] Failed to initialize feedback file storage:', err);
   }
 
-  // Always clear legacy globalState data to free up space
-  // This runs after all file-based storage is initialized
-  try {
-    await clearLegacyGlobalState(context);
-    console.log('[Personaut] Legacy globalState cleaned up automatically');
-  } catch (err) {
-    console.error('[Personaut] Failed to cleanup legacy globalState:', err);
+  // Version tracking for safe migration
+  const EXTENSION_VERSION = '0.1.5';
+  const LAST_MIGRATED_VERSION_KEY = 'personaut.lastMigratedVersion';
+
+  // Check if we should run migration (only for 0.1.2 or earlier)
+  const lastMigratedVersion = context.globalState.get<string>(LAST_MIGRATED_VERSION_KEY);
+  const shouldRunMigration = !lastMigratedVersion || compareVersions(lastMigratedVersion, '0.1.2') <= 0;
+
+  if (shouldRunMigration) {
+    console.log(`[Personaut] Migration needed (last migrated: ${lastMigratedVersion || 'never'})`);
+
+    let conversationMigrationSuccess = false;
+    let personaMigrationSuccess = false;
+
+    // Run conversation migration
+    if (migrationService) {
+      try {
+        const migrationResult = await migrationService.runMigrationIfNeeded();
+        if (migrationResult) {
+          console.log(`[Personaut] Conversation migration: ${migrationResult.conversationsMigrated} migrated`);
+          conversationMigrationSuccess = migrationResult.success && migrationResult.errors.length === 0;
+        } else {
+          conversationMigrationSuccess = true; // No migration needed
+        }
+      } catch (err) {
+        console.error('[Personaut] Conversation migration failed:', err);
+      }
+    } else {
+      console.warn('[Personaut] Migration service not initialized, skipping conversation migration');
+      conversationMigrationSuccess = true; // Skip if service not available
+    }
+
+    // Run persona migration
+    if (personaMigrationService) {
+      try {
+        const personaMigrationResult = await personaMigrationService.runMigrationIfNeeded();
+        if (personaMigrationResult) {
+          console.log(`[Personaut] Persona migration: ${personaMigrationResult.personasMigrated} migrated`);
+          personaMigrationSuccess = personaMigrationResult.success && personaMigrationResult.errors.length === 0;
+        } else {
+          personaMigrationSuccess = true; // No migration needed
+        }
+      } catch (err) {
+        console.error('[Personaut] Persona migration failed:', err);
+      }
+    } else {
+      console.warn('[Personaut] Persona migration service not initialized, skipping persona migration');
+      personaMigrationSuccess = true; // Skip if service not available
+    }
+
+    // ONLY clear legacy data if BOTH migrations succeeded
+    if (conversationMigrationSuccess && personaMigrationSuccess) {
+      try {
+        await clearLegacyGlobalState(context);
+        await context.globalState.update(LAST_MIGRATED_VERSION_KEY, EXTENSION_VERSION);
+        console.log('[Personaut] Migration complete, legacy data cleared, version tracked');
+      } catch (err) {
+        console.error('[Personaut] Failed to cleanup legacy globalState:', err);
+      }
+    } else {
+      console.warn('[Personaut] Migration incomplete - keeping legacy data for safety');
+    }
+  } else {
+    console.log(`[Personaut] Already migrated from ${lastMigratedVersion}, skipping migration and cleanup`);
   }
 
   const container = new Container();
@@ -432,6 +509,8 @@ export async function activate(context: vscode.ExtensionContext) {
     const contentStreamer = container.resolve<ContentStreamer>('contentStreamer');
     const buildLogManager = container.resolve<BuildLogManager>('buildLogManager');
     const inputValidator = container.resolve<InputValidator>('inputValidator');
+    const settingsService = container.resolve<SettingsService>('settingsService');
+    const agentManager = container.resolve<AgentManager>('agentManager');
     const personasService = container.resolve<PersonasService>('personasService');
     return new BuildModeHandler(
       buildModeService,
@@ -439,6 +518,8 @@ export async function activate(context: vscode.ExtensionContext) {
       contentStreamer,
       buildLogManager,
       inputValidator,
+      settingsService,
+      agentManager,
       personasService
     );
   });
@@ -532,6 +613,9 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage('Legacy storage cleaned up. Your data is now stored in files for better performance.');
     })
   );
+
+  // Register data recovery commands
+  registerRecoveryCommands(context);
 
   // Token management commands
   context.subscriptions.push(

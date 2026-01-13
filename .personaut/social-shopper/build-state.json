@@ -1,0 +1,18 @@
+{
+  "projectName": "social-shopper",
+  "projectTitle": "social-shopper",
+  "createdAt": 1767585574204,
+  "lastUpdated": 1767585575320,
+  "stages": {
+    "idea": {
+      "completed": false,
+      "path": "planning/idea.json",
+      "updatedAt": 1767585574215
+    },
+    "team": {
+      "completed": true,
+      "path": "planning/team.json",
+      "updatedAt": 1767585575320
+    }
+  }
+}

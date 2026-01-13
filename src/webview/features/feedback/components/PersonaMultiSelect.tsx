@@ -163,9 +163,9 @@ export function PersonaMultiSelect({
     };
 
     const handleClick = (personaId: string) => {
-        if (disabled) return;
+        if (disabled) {return;}
         const isSelected = selectedIds.includes(personaId);
-        if (!isSelected && isAtLimit) return;
+        if (!isSelected && isAtLimit) {return;}
         onToggle(personaId);
     };
 

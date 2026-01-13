@@ -32,9 +32,9 @@ export interface TokenUsageDisplayProps {
  * Get the status based on percentage used
  */
 function getUsageStatus(percentUsed: number, warningThreshold: number = 80): TokenUsageStatus {
-    if (percentUsed >= 100) return 'exceeded';
-    if (percentUsed >= warningThreshold) return 'danger';
-    if (percentUsed >= 50) return 'warning';
+    if (percentUsed >= 100) {return 'exceeded';}
+    if (percentUsed >= warningThreshold) {return 'danger';}
+    if (percentUsed >= 50) {return 'warning';}
     return 'safe';
 }
 

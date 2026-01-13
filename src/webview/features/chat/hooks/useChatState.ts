@@ -99,6 +99,13 @@ export function useChatState(): UseChatStateReturn {
         (savedState as any)?.currentConversationId || null
     );
 
+    // Queue for pending message when waiting for conversation ID
+    const pendingMessageRef = useRef<{
+        message: string;
+        contextFiles: ContextFile[];
+        persona: ChatPersona;
+    } | null>(null);
+
     // Refs
     const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -113,8 +120,9 @@ export function useChatState(): UseChatStateReturn {
             selectedChatPersona: selectedPersona,
             view,
             history,
+            currentConversationId, // Persist conversation ID
         });
-    }, [messages, input, contextFiles, selectedPersona, view, history]);
+    }, [messages, input, contextFiles, selectedPersona, view, history, currentConversationId]);
 
     // Handle messages from extension
     useEffect(() => {
@@ -172,6 +180,22 @@ export function useChatState(): UseChatStateReturn {
                     setView('chat');
                     setIsTyping(false);
                     setStatus('');
+
+                    // If there's a pending message, send it now with the new conversation ID
+                    if (pendingMessageRef.current) {
+                        console.log('[useChatState] Sending pending message with new conversation ID:', message.conversationId);
+                        const pending = pendingMessageRef.current;
+                        pendingMessageRef.current = null; // Clear the pending message
+
+                        postMessage({
+                            type: 'send-message',
+                            value: pending.message,
+                            contextFiles: pending.contextFiles,
+                            persona: pending.persona,
+                            mode: 'chat',
+                            conversationId: message.conversationId,
+                        });
+                    }
                     break;
 
                 case 'session-messages-loaded':
@@ -182,6 +206,12 @@ export function useChatState(): UseChatStateReturn {
                         setView('chat');
                         setIsTyping(false);
                         setStatus('');
+
+                        // Set the conversation ID so new messages continue this conversation
+                        if (message.sessionId) {
+                            console.log('[useChatState] Resuming conversation:', message.sessionId);
+                            setCurrentConversationId(message.sessionId);
+                        }
                     }
                     break;
             }
@@ -199,14 +229,30 @@ export function useChatState(): UseChatStateReturn {
     const sendMessage = useCallback(
         (overrideMessage?: string) => {
             const messageToSend = overrideMessage || input;
-            if (!messageToSend.trim()) return;
+            if (!messageToSend.trim()) { return; }
 
             // Add user message to UI
             setMessages((prev) => [...prev, { role: 'user', text: messageToSend }]);
             setIsTyping(true);
             setInput('');
 
-            // Send to extension
+            // If no conversation ID exists, queue the message and request a new conversation
+            if (!currentConversationId) {
+                console.log('[useChatState] No conversation ID, creating new conversation and queuing message');
+
+                // Store the message to send after conversation is created
+                pendingMessageRef.current = {
+                    message: messageToSend,
+                    contextFiles,
+                    persona: selectedPersona,
+                };
+
+                // Request new conversation - the handler will send the pending message
+                postMessage({ type: 'new-chat' });
+                return;
+            }
+
+            // Send to extension with current conversation ID
             console.log('[useChatState] Sending message with conversationId:', currentConversationId);
             postMessage({
                 type: 'send-message',

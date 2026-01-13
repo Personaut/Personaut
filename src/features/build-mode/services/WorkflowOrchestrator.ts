@@ -14,6 +14,15 @@
  */
 
 import * as vscode from 'vscode';
+import {
+    FEATURE_ANALYST_PROMPT,
+    COMPETITIVE_ANALYSIS_PROMPT,
+    MARKET_RESEARCH_PROMPT,
+    USER_RESEARCHER_PROMPT,
+    RESEARCH_SYNTHESIS_PROMPT,
+    UX_DESIGNER_PROMPT,
+    DEVELOPER_PROMPT,
+} from '../../../core/prompts/BuildPrompts';
 
 /**
  * Workflow step types
@@ -353,7 +362,7 @@ export class WorkflowOrchestrator {
         const startTime = Date.now();
 
         // Build the prompt with context and previous results
-        let prompt = this.buildAgentPrompt(task, context, previousResults);
+        const prompt = this.buildAgentPrompt(task, context, previousResults);
 
         try {
             // Create agent via factory
@@ -588,7 +597,7 @@ Be authentic to your character and background.`,
         {
             id: 'consolidator',
             role: 'Feature Analyst',
-            systemPrompt: `You are a feature analyst consolidating feedback from multiple user interviews.
+            systemPrompt: FEATURE_ANALYST_PROMPT + `
 
 Your task is to:
 1. Identify common feature themes across all personas
@@ -653,7 +662,7 @@ export function createResearchWorkflow(ideaDescription: string): WorkflowDefinit
         {
             id: 'competitive-analyst',
             role: 'Competitive Analyst',
-            systemPrompt: `You are a competitive analysis researcher. Your goal is to find and analyze products similar to the idea provided.
+            systemPrompt: COMPETITIVE_ANALYSIS_PROMPT(ideaDescription) + `
 
 Identify:
 1. Direct competitors (same solution)
@@ -669,7 +678,7 @@ For each competitor, document:
         {
             id: 'market-researcher',
             role: 'Market Researcher',
-            systemPrompt: `You are a market research analyst. Research the market opportunity for the idea provided.
+            systemPrompt: MARKET_RESEARCH_PROMPT(ideaDescription) + `
 
 Analyze:
 1. Market size and growth projections
@@ -681,7 +690,7 @@ Analyze:
         {
             id: 'user-researcher',
             role: 'User Researcher',
-            systemPrompt: `You are a user researcher. Research potential users for the idea provided.
+            systemPrompt: USER_RESEARCHER_PROMPT(ideaDescription) + `
 
 Identify:
 1. Target user demographics
@@ -693,7 +702,7 @@ Identify:
         {
             id: 'synthesizer',
             role: 'Research Synthesizer',
-            systemPrompt: `You are a research synthesis expert. Consolidate findings from competitive, market, and user research into a comprehensive report.
+            systemPrompt: RESEARCH_SYNTHESIS_PROMPT + `
 
 Create sections for:
 1. Executive Summary
@@ -742,7 +751,7 @@ export function createBuildIterationWorkflow(
         {
             id: 'ux-agent',
             role: 'UX Designer',
-            systemPrompt: `You are a UX designer. Your task is to design the user interface and write clear requirements for the developer.
+            systemPrompt: UX_DESIGNER_PROMPT + `
 
 Consider:
 1. UI components and layout
@@ -755,7 +764,7 @@ ${previousFeedback ? `\nPrevious iteration feedback to address:\n${previousFeedb
         {
             id: 'developer-agent',
             role: 'Developer',
-            systemPrompt: `You are a full-stack developer using ${framework}.
+            systemPrompt: DEVELOPER_PROMPT(framework) + `
 
 Your task:
 1. Implement the feature according to UX requirements

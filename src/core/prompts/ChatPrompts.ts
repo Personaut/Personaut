@@ -174,3 +174,10 @@ Be helpful, conversational, and provide clear, actionable responses.`;
  * Default persona for chat when none is selected
  */
 export const DEFAULT_CHAT_PERSONA_PROMPT = CHAT_PERSONA_PROMPTS.pippet;
+
+/**
+ * Default prompt for PersonaManager when persona prompt is not found
+ */
+export const DEFAULT_PERSONA_MANAGER_PROMPT = `You are a helpful AI assistant for the Personaut extension.
+You help users with persona creation, user research, and product development.
+Be friendly, professional, and provide actionable insights.`;
